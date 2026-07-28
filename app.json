@@ -1,0 +1,302 @@
+{
+  "configVersion": "v3",
+  "app": {
+    "appId": 1121554,
+    "appName": "RingMap",
+    "appType": "app",
+    "version": {
+      "code": 8,
+      "name": "2.4.1"
+    },
+    "icon": "icon.png",
+    "vender": "Anonymous",
+    "description": "华米手表骑行导航（手机端导航+手表显示）"
+  },
+  "runtime": {
+    "apiVersion": {
+      "minVersion": "3.0",
+      "compatible": "3.0.0",
+      "target": "3.5.0"
+    }
+  },
+  "permissions": [
+    "device:os.local_storage",
+    "device:os.network",
+    "data:os.device.info"
+  ],
+  "targets": {
+    "balance": {
+      "module": {
+        "page": {
+          "pages": [
+            "page/home",
+            "page/navigation",
+            "page/settings",
+            "page/about"
+          ],
+          "defaultPage": "page/home"
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        }
+      },
+      "platforms": [
+        {
+          "name": "balance",
+          "deviceSource": 8519936,
+          "st": "r",
+          "sr": "w480"
+        },
+        {
+          "name": "balance",
+          "deviceSource": 8519937,
+          "st": "r",
+          "sr": "w480"
+        },
+        {
+          "name": "balance",
+          "deviceSource": 8519939,
+          "st": "r",
+          "sr": "w480"
+        }
+      ],
+      "designWidth": 480
+    },
+    "cheetahpro": {
+      "module": {
+        "page": {
+          "pages": [
+            "page/home",
+            "page/navigation",
+            "page/settings",
+            "page/about"
+          ],
+          "defaultPage": "page/home"
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        }
+      },
+      "platforms": [
+        {
+          "name": "cheetahpro",
+          "deviceSource": 8126720,
+          "st": "r",
+          "sr": "w480"
+        },
+        {
+          "name": "cheetahpro",
+          "deviceSource": 8126721,
+          "st": "r",
+          "sr": "w480"
+        }
+      ],
+      "designWidth": 480
+    },
+    "active2": {
+      "module": {
+        "page": {
+          "pages": [
+            "page/home",
+            "page/navigation",
+            "page/settings",
+            "page/about"
+          ],
+          "defaultPage": "page/home"
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        }
+      },
+      "platforms": [
+        {
+          "name": "active2",
+          "deviceSource": 8913152,
+          "st": "r",
+          "sr": "w466"
+        },
+        {
+          "name": "active2",
+          "deviceSource": 8913153,
+          "st": "r",
+          "sr": "w466"
+        },
+        {
+          "name": "active2",
+          "deviceSource": 8913155,
+          "st": "r",
+          "sr": "w466"
+        },
+        {
+          "name": "active2",
+          "deviceSource": 8913159,
+          "st": "r",
+          "sr": "w466"
+        },
+        {
+          "name": "active2",
+          "deviceSource": 10092800,
+          "st": "r",
+          "sr": "w466"
+        },
+        {
+          "name": "active2",
+          "deviceSource": 10092801,
+          "st": "r",
+          "sr": "w466"
+        },
+        {
+          "name": "active2",
+          "deviceSource": 10092803,
+          "st": "r",
+          "sr": "w466"
+        },
+        {
+          "name": "active2",
+          "deviceSource": 10092807,
+          "st": "r",
+          "sr": "w466"
+        }
+      ],
+      "designWidth": 466
+    },
+    "trex3-pro": {
+      "module": {
+        "page": {
+          "pages": [
+            "page/home",
+            "page/navigation",
+            "page/settings",
+            "page/about"
+          ],
+          "defaultPage": "page/home"
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        }
+      },
+      "platforms": [
+        {
+          "name": "trex3-pro",
+          "deviceSource": 10551552,
+          "st": "r",
+          "sr": "w480"
+        },
+        {
+          "name": "trex3-pro",
+          "deviceSource": 10551553,
+          "st": "r",
+          "sr": "w480"
+        },
+        {
+          "name": "trex3-pro",
+          "deviceSource": 10551555,
+          "st": "r",
+          "sr": "w480"
+        }
+      ],
+      "designWidth": 480
+    },
+    "gtr4": {
+      "module": {
+        "page": {
+          "pages": [
+            "page/home",
+            "page/navigation",
+            "page/settings",
+            "page/about"
+          ],
+          "defaultPage": "page/home"
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        }
+      },
+      "platforms": [
+        {
+          "name": "gtr4",
+          "deviceSource": 7930112,
+          "st": "r",
+          "sr": "w466"
+        },
+        {
+          "name": "gtr4",
+          "deviceSource": 7930113,
+          "st": "r",
+          "sr": "w466"
+        },
+        {
+          "name": "gtr4",
+          "deviceSource": 7864577,
+          "st": "r",
+          "sr": "w466"
+        }
+      ],
+      "designWidth": 466
+    },
+    "trex3": {
+      "module": {
+        "page": {
+          "pages": [
+            "page/home",
+            "page/navigation",
+            "page/settings",
+            "page/about"
+          ],
+          "defaultPage": "page/home"
+        },
+        "app-side": {
+          "path": "app-side/index"
+        },
+        "setting": {
+          "path": "setting/index"
+        }
+      },
+      "platforms": [
+        {
+          "name": "trex3",
+          "deviceSource": 8716544,
+          "st": "r",
+          "sr": "w480"
+        },
+        {
+          "name": "trex3",
+          "deviceSource": 8716545,
+          "st": "r",
+          "sr": "w480"
+        },
+        {
+          "name": "trex3",
+          "deviceSource": 8716547,
+          "st": "r",
+          "sr": "w480"
+        }
+      ],
+      "designWidth": 480
+    }
+  },
+  "i18n": {
+    "zh-CN": {
+      "appName": "环间导航"
+    },
+    "en-US": {
+      "appName": "RingMap"
+    }
+  },
+  "defaultLanguage": "zh-CN"
+}

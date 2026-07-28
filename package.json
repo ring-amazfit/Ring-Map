@@ -1,0 +1,16 @@
+{
+  "name": "ring-map",
+  "version": "1.0.0",
+  "description": "环间导航 - 华米手表骑行导航",
+  "scripts": {
+    "build": "zeus build",
+    "dev": "zeus dev --target common",
+    "preview": "zeus preview -t \"Amazfit Balance\""
+  },
+  "devDependencies": {
+    "@zeppos/zeus-cli": "1.0.6"
+  },
+  "zeppos": {
+    "appId": 1121554
+  }
+}

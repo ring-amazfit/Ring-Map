@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- MD3 基础主题：Material You 紫色基线 -->
+    <style name="Theme.RingMap" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- 主色 -->
+        <item name="colorPrimary">@color/md3_primary</item>
+        <item name="colorOnPrimary">@color/md3_on_primary</item>
+        <item name="colorPrimaryContainer">@color/md3_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/md3_on_primary_container</item>
+
+        <!-- 次级色 -->
+        <item name="colorSecondary">@color/md3_secondary</item>
+        <item name="colorOnSecondary">@color/md3_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/md3_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/md3_on_secondary_container</item>
+
+        <!-- 三级色 -->
+        <item name="colorTertiary">@color/md3_tertiary</item>
+        <item name="colorOnTertiary">@color/md3_on_tertiary</item>
+        <item name="colorTertiaryContainer">@color/md3_tertiary_container</item>
+        <item name="colorOnTertiaryContainer">@color/md3_on_tertiary_container</item>
+
+        <!-- 表面色 -->
+        <item name="android:colorBackground">@color/md3_background</item>
+        <item name="colorOnBackground">@color/md3_on_background</item>
+        <item name="colorSurface">@color/md3_surface</item>
+        <item name="colorOnSurface">@color/md3_on_surface</item>
+        <item name="colorSurfaceVariant">@color/md3_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/md3_on_surface_variant</item>
+
+        <!-- 轮廓 -->
+        <item name="colorOutline">@color/md3_outline</item>
+
+        <!-- Android 12+ Monet：由 RingMapApp 通过 Material DynamicColors 注入系统壁纸色；
+         Android 11 及以下自动保留上方绿色 fallback token。 -->
+    <item name="android:windowActionModeOverlay">true</item>
+    <item name="android:forceDarkAllowed">false</item>
+    <item name="android:navigationBarColor">@color/md3_background</item>
+    <item name="android:statusBarColor">@android:color/transparent</item>
+    <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+    <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
+    </style>
+
+    <!-- 顶部应用栏样式（MD3） -->
+    <style name="Widget.RingMap.AppBar" parent="Widget.Material3.Toolbar">
+        <item name="titleTextColor">@color/md3_on_surface</item>
+        <item name="android:background">@color/md3_surface</item>
+    </style>
+
+    <!-- 文本样式 -->
+    <style name="TextAppearance.RingMap.Headline" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:textColor">@color/md3_on_surface</item>
+    </style>
+    <style name="TextAppearance.RingMap.Body" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textColor">@color/md3_on_surface_variant</item>
+    </style>
+    <style name="TextAppearance.RingMap.Label" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:textColor">@color/md3_on_surface_variant</item>
+    </style>
+
+    <!-- 形状令牌（MD3 圆角规范） -->
+    <style name="ShapeAppearance.RingMap.Icon" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+    <style name="ShapeAppearance.RingMap.Card" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">20dp</item>
+    </style>
+    <style name="ShapeAppearance.RingMap.Pill" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+</resources>

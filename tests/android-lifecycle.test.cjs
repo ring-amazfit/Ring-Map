@@ -1,0 +1,16 @@
+const assert = require('assert')
+const fs = require('fs')
+
+const listener = fs.readFileSync('android/app/src/main/java/com/ringmap/nav/NavNotificationListener.java', 'utf8')
+const activity = fs.readFileSync('android/app/src/main/java/com/ringmap/nav/MainActivity.java', 'utf8')
+const service = fs.readFileSync('android/app/src/main/java/com/ringmap/nav/NavigationService.java', 'utf8')
+
+assert(listener.includes('requestRebind'), 'notification listener must request rebind after disconnect')
+assert(listener.includes('verifyNavigationEnded'), 'notification removal must verify that no active map navigation notification remains')
+assert(listener.includes('postDelayed'), 'notification end verification must tolerate notification replacement races')
+assert(listener.includes('Handler'), 'notification listener needs an independent retry handler')
+assert(activity.includes('isNotificationListenerAccessGranted'), 'activity must use the official notification access API')
+assert(!activity.includes('rebindAttempts < 6'), 'activity must not force re-authorization after a fixed retry count')
+assert(service.indexOf('startForeground(NOTIFICATION_ID') < service.indexOf('mWsServer = new NavWebSocketServer'), 'foreground service must enter foreground before opening WebSocket')
+assert(service.includes('onTimeout(int startId, int fgsType)'), 'Android 15 dataSync timeout must stop the service')
+console.log('android lifecycle tests passed')

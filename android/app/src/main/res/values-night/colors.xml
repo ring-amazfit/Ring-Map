@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12+ Monet 深色动态色，覆盖 values-night 的 fallback。 -->
+    <color name="md3_primary">#56D97A</color>
+    <color name="md3_on_primary">#062611</color>
+    <color name="md3_primary_container">#1E6036</color>
+    <color name="md3_on_primary_container">#B8F8C7</color>
+
+    <color name="md3_secondary">#B8D9BE</color>
+    <color name="md3_on_secondary">#203A27</color>
+    <color name="md3_secondary_container">#304E38</color>
+    <color name="md3_on_secondary_container">#D4F3D8</color>
+
+    <color name="md3_tertiary">#B1DABB</color>
+    <color name="md3_on_tertiary">#213C2A</color>
+    <color name="md3_tertiary_container">#36533E</color>
+    <color name="md3_on_tertiary_container">#CDEED1</color>
+
+    <color name="md3_error">#F2B8B5</color>
+    <color name="md3_on_error">#601410</color>
+    <color name="md3_error_container">#8C1D18</color>
+    <color name="md3_on_error_container">#F9DEDC</color>
+
+    <color name="md3_background">#07140D</color>
+    <color name="md3_on_background">#E8F7E9</color>
+    <color name="md3_surface">#0B1910</color>
+    <color name="md3_on_surface">#E8F7E9</color>
+    <color name="md3_surface_variant">#294332</color>
+    <color name="md3_on_surface_variant">#B7D6BC</color>
+    <color name="md3_surface_container">#10251A</color>
+    <color name="md3_surface_container_high">#183625</color>
+    <color name="md3_outline">#829D88</color>
+    <color name="md3_outline_variant">#405A48</color>
+
+    <color name="ringmap_success">#56D97A</color>
+    <color name="ringmap_warning">#F0C969</color>
+    <color name="ringmap_error">#FFB4AB</color>
+
+    <color name="md3_navi_go">#56D97A</color>
+    <color name="md3_navi_left">#72E691</color>
+    <color name="md3_navi_right">#9CF5B2</color>
+    <color name="md3_navi_uturn">#A8DDB3</color>
+    <color name="md3_navi_arrive">#56D97A</color>
+</resources>
