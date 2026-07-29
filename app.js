@@ -17,6 +17,8 @@ var builder = null
 var expiryTimer = null
 var routeTimer = null
 var routePushTimer = null
+var transportReconnectTimer = null
+var transportReconnectAttempt = 0
 
 var appData = {
   messageBuilder: null,
@@ -24,21 +26,84 @@ var appData = {
   navPageRefresh: null,
   homePageRefresh: null,
   navRoutePending: false,
+  resumeNavigationOnHome: false,
   navSession: '',
   lastAppliedKey: '',
   navState: createNavState(),
   hapticState: createHapticState(),
   requestLatestNav: requestLatestNav,
+  openNavigationPage: openNavigationPage,
   confirmNavigationPage: confirmNavigationPage,
   markApplied: markApplied
 }
 
-function sendPacket(packet) {
-  if (!builder || !packet) return
+function clearDeviceTransportReconnect() {
+  if (transportReconnectTimer !== null) {
+    clearTimeout(transportReconnectTimer)
+    transportReconnectTimer = null
+  }
+}
+
+function scheduleDeviceTransportReconnect() {
+  if (transportReconnectTimer !== null) return
+  var delay = Math.min(8000, 500 * Math.pow(2, transportReconnectAttempt++))
+  transportReconnectTimer = setTimeout(function() {
+    transportReconnectTimer = null
+    createDeviceTransport()
+  }, delay)
+}
+
+function createDeviceTransport() {
+  clearDeviceTransportReconnect()
+  var previous = builder
+  if (previous) {
+    try { previous.disConnect() } catch (e) {}
+  }
   try {
-    builder.call(packet)
+    var next = new MessageBuilder({
+      appId: APP_ID,
+      appDevicePort: 20,
+      appSidePort: 0,
+      ble: ble
+    })
+    next.on('call', function(context) {
+      try {
+        handleWatchPacket(next.buf2Json(context.payload))
+      } catch (e) {
+        console.log('RingMap: global message error', e)
+      }
+    })
+    builder = next
+    appData.messageBuilder = next
+    next.connect(function() {
+      transportReconnectAttempt = 0
+      sendWatchReady()
+      requestLatestNav()
+    })
+  } catch (e) {
+    console.log('RingMap: device transport create failed', e)
+    builder = null
+    appData.messageBuilder = null
+    scheduleDeviceTransportReconnect()
+  }
+}
+
+function sendPacket(packet) {
+  if (!builder || !packet) {
+    scheduleDeviceTransportReconnect()
+    return
+  }
+  try {
+    var result = builder.call(packet)
+    if (result && typeof result.catch === 'function') {
+      result.catch(function(error) {
+        console.log('RingMap: device packet failed', error)
+        scheduleDeviceTransportReconnect()
+      })
+    }
   } catch (e) {
     console.log('RingMap: device packet failed', e)
+    scheduleDeviceTransportReconnect()
   }
 }
 
@@ -95,6 +160,7 @@ function autoOpenEnabled() {
 
 function confirmNavigationPage() {
   appData.navRoutePending = false
+  appData.resumeNavigationOnHome = false
   if (routeTimer !== null) {
     clearTimeout(routeTimer)
     routeTimer = null
@@ -236,8 +302,10 @@ function restoreCachedNavigation() {
     appData.navState = expired.state
     appData.navSession = expired.state.sessionId
     if (expired.changed) {
+      appData.resumeNavigationOnHome = false
       clearStoredNavigation('stale')
     } else {
+      appData.resumeNavigationOnHome = true
       scheduleExpiry()
     }
   } catch (e) {
@@ -256,31 +324,13 @@ App({
   onCreate() {
     getPackageInfo()
     restoreCachedNavigation()
-    builder = new MessageBuilder({
-      appId: APP_ID,
-      appDevicePort: 20,
-      appSidePort: 0,
-      ble: ble
-    })
-    appData.messageBuilder = builder
-
-    builder.on('call', function(context) {
-      try {
-        handleWatchPacket(builder.buf2Json(context.payload))
-      } catch (e) {
-        console.log('RingMap: global message error', e)
-      }
-    })
-
-    builder.connect(function() {
-      sendWatchReady()
-      requestLatestNav()
-    })
+    createDeviceTransport()
   },
 
   onDestroy() {
     cancelExpiry()
     confirmNavigationPage()
+    clearDeviceTransportReconnect()
     if (builder) builder.disConnect()
     builder = null
     appData.messageBuilder = null
@@ -288,10 +338,12 @@ App({
     appData.navPageRefresh = null
     appData.homePageRefresh = null
     appData.navRoutePending = false
+    appData.resumeNavigationOnHome = false
     appData.navSession = ''
     appData.navState = createNavState()
     appData.hapticState = createHapticState()
     appData.requestLatestNav = requestLatestNav
+    appData.openNavigationPage = openNavigationPage
     appData.confirmNavigationPage = confirmNavigationPage
     appData.markApplied = markApplied
   }

@@ -21,7 +21,7 @@ public class NavUiStateTest {
     public void derivesReadinessInPriorityOrder() {
         assertEquals(NavUiState.Readiness.NEEDS_PERMISSION,
                 new NavUiState.Builder().now(100L).build().readiness());
-        assertEquals(NavUiState.Readiness.CONNECTING_LISTENER,
+        assertEquals(NavUiState.Readiness.SERVICE_STOPPED,
                 new NavUiState.Builder().notificationAccess(true).now(100L).build().readiness());
         assertEquals(NavUiState.Readiness.SERVICE_STOPPED,
                 new NavUiState.Builder().notificationAccess(true).listenerConnected(true)
@@ -38,6 +38,18 @@ public class NavUiStateTest {
         assertEquals(NavUiState.Readiness.READY, readyBase().build().readiness());
         assertEquals(NavUiState.Readiness.NAVIGATING,
                 readyBase().navigating(true).sessionId("session-a").seq(4).build().readiness());
+    }
+
+    @Test
+    public void reportsListenerReconnectOnlyAfterTheBridgeIsRunning() {
+        assertEquals(NavUiState.Readiness.CONNECTING_LISTENER,
+                new NavUiState.Builder().notificationAccess(true)
+                        .listenerConnected(false)
+                        .serviceRunning(true)
+                        .serviceState("监听桥运行中")
+                        .now(100L)
+                        .build()
+                        .readiness());
     }
 
     @Test

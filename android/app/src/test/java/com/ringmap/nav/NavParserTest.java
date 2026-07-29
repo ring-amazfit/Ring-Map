@@ -68,6 +68,16 @@ public class NavParserTest {
     }
 
     @Test
+    public void stripsRedundantMapNavigationSuffixFromInstruction() {
+        NavInstruction result = NavParser.parseInstruction("1米后左转 进入南新五路 | 高德导航中");
+
+        assertEquals("1米后左转 进入南新五路", result.rawText);
+        assertEquals("turn_left", result.action);
+        assertEquals(1, result.distance);
+        assertEquals("南新五路", result.road);
+    }
+
+    @Test
     public void includesExactSourcePackageInParsedJson() throws Exception {
         // JSONObject 在 Android 本地单元测试环境未提供实现；来源字段由通知监听器写入，
         // 这里用源码契约测试覆盖重载入口，实际 JSON 行为在 Android 构建中验证。

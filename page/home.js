@@ -3,6 +3,7 @@ import { px } from '@zos/utils'
 import { push } from '@zos/router'
 import { localStorage } from '@zos/storage'
 import { applySavedScreenSetting } from '../utils/settings'
+import { drawThemeBackground } from '../utils/theme'
 import { actionIcon, actionTitle, createActionIcon, deleteAll } from '../utils/icons'
 
 var TEXT = 0xF6FAF8
@@ -37,7 +38,7 @@ Page({
 
   build() {
     var self = this
-    createWidget(widget.IMG, { x: 0, y: 0, w: px(480), h: px(480), src: 'night-corridor-bg.png' })
+    drawThemeBackground(480)
     text(110, 24, 260, 24, 18, TEXT, 'RINGMAP')
     self.state.status = text(92, 55, 296, 22, 12, CYAN, '正在检查连接')
     self.state.distance = text(50, 242, 380, 68, 54, TEXT, '')
@@ -58,6 +59,15 @@ Page({
     var appData = getApp()._options.globalData
     appData.homePageRefresh = function(nav, navState) { self.renderState(nav, navState) }
     self.refreshCurrentState()
+    if (typeof appData.requestLatestNav === 'function') appData.requestLatestNav()
+    if (appData.resumeNavigationOnHome) {
+      appData.resumeNavigationOnHome = false
+      if (typeof appData.openNavigationPage === 'function') appData.openNavigationPage()
+    }
+    if (appData.navState && appData.navState.status === 'active'
+        && typeof appData.openNavigationPage === 'function') {
+      appData.openNavigationPage()
+    }
   },
 
   refreshCurrentState() {
@@ -81,7 +91,8 @@ Page({
     if (type === this.state.lastAction) return
     this.state.lastAction = type
     deleteAll(this.state.iconWidgets)
-    this.state.iconWidgets.push(createActionIcon(type, 176, 102, 128))
+    if (type === 'wait') return
+    this.state.iconWidgets.push(createActionIcon(type, 164, 88, 152))
   },
 
   renderState(nav, navState) {

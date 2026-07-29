@@ -30,6 +30,23 @@ public final class LastNavCache {
 
     public static JSONObject get() { return sLast; }
 
+    /** 仅允许补发协议 TTL 内的快照，避免重连后显示旧转向。 */
+    public static synchronized JSONObject getFresh() {
+        JSONObject snapshot = sLast;
+        return isFreshAt(snapshot, System.currentTimeMillis()) ? snapshot : null;
+    }
+
+    static boolean isFreshAt(JSONObject snapshot, long now) {
+        if (snapshot == null) return false;
+        return isFreshAt(snapshot.optLong("emittedAt", 0L),
+                snapshot.optLong("ttlMs", 45_000L), now);
+    }
+
+    static boolean isFreshAt(long emittedAt, long ttlMs, long now) {
+        long boundedTtl = Math.max(5_000L, Math.min(120_000L, ttlMs));
+        return emittedAt > 0L && now - emittedAt <= boundedTtl;
+    }
+
     public static synchronized void clear() {
         clear(null);
     }
@@ -56,23 +73,39 @@ public final class LastNavCache {
 
     public static synchronized boolean setWatchAck(JSONObject ack) {
         if (ack == null || sLast == null) return false;
+        long now = System.currentTimeMillis();
+        if (!isFreshAt(sLast, now)) return false;
         String sessionId = ack.optString("sessionId", "");
         long seq = ack.optLong("seq", 0L);
         if (!sessionId.equals(sLast.optString("sessionId", ""))
                 || seq != sLast.optLong("seq", -1L)) {
             return false;
         }
-        long now = System.currentTimeMillis();
+        String incomingStatus = ack.optString("status", "accepted");
+        if (sessionId.equals(sLastAckSessionId) && seq == sLastAckSeq
+                && !ackStatusAdvances(sLastAckStatus, incomingStatus)) {
+            return false;
+        }
         sLastWatchAckTs = now;
         sLastAckSessionId = sessionId;
         sLastAckSeq = seq;
-        sLastAckStatus = ack.optString("status", "accepted");
+        sLastAckStatus = incomingStatus;
         sWatchReceivedAt = ack.optLong("watchReceivedAt", 0L);
         sWatchAppliedAt = ack.optLong("widgetAppliedAt", 0L);
         long emittedAt = sLast.optLong("emittedAt", 0L);
         sAckRoundTripMs = emittedAt > 0L ? Math.max(0L, now - emittedAt) : -1L;
         NavStateRepository.get().onWatchAck(ack, now, sAckRoundTripMs);
         return true;
+    }
+
+    static boolean ackStatusAdvances(String previous, String incoming) {
+        return ackRank(incoming) > ackRank(previous);
+    }
+
+    private static int ackRank(String status) {
+        if ("applied".equals(status)) return 2;
+        if ("accepted".equals(status)) return 1;
+        return 0;
     }
 
     public static long getLastWatchAckTs() { return sLastWatchAckTs; }

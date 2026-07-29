@@ -89,9 +89,9 @@ public final class NavUiState {
 
     public Readiness readiness() {
         if (!notificationAccess) return Readiness.NEEDS_PERMISSION;
-        if (!listenerConnected) return Readiness.CONNECTING_LISTENER;
         if (!serviceError.isEmpty()) return Readiness.SERVICE_ERROR;
         if (!serviceRunning) return Readiness.SERVICE_STOPPED;
+        if (!listenerConnected) return Readiness.CONNECTING_LISTENER;
         if (clientCount <= 0) return Readiness.WAITING_BRIDGE;
         if (lastAckAt <= 0L || now - lastAckAt > 30_000L) return Readiness.WAITING_WATCH_ACK;
         if (navigating) return Readiness.NAVIGATING;

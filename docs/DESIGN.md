@@ -6,6 +6,16 @@ RingMap is a glanceable cycling instrument, not a miniature map. “Night Corrid
 
 The generated background is original and contains no copied UI, text, logos, people, map tiles, bokeh blobs, or isolated gradient orbs.
 
+## Watch themes
+
+The watch offers three runtime-selectable backgrounds without rebuilding page layout:
+
+- Night Corridor: the original road artwork
+- Pure black: no bitmap background
+- Navigation Mascot (导航娘): a circular crop from the project-owner-supplied character artwork, composited over black at restrained opacity
+
+All themes retain the same text hierarchy and action colors.
+
 ## Watch palette
 
 - Background: `#030507`
@@ -24,8 +34,8 @@ Design master: `480 x 480`. ZeppOS `px()` scales the same grid to 466px targets.
 
 ```text
 y 24..46    source / connection
- y 58..92   maneuver title
- y100..228  action image (128px)
+ y 54..84   maneuver title
+ y 88..240  action image (152px)
  y246..334  distance (72px, optional 80px big mode)
  y340..372  instruction
  y378..402  road
@@ -37,7 +47,7 @@ Arrow, distance, instruction, and road slots do not intersect. Decorative road i
 
 ## States
 
-- Waiting: pause icon, no fake straight arrow
+- Waiting/connecting/confirming: text only, with no placeholder symbol or fake direction
 - Connected/idle: bridge status and “等待导航”
 - Active: source, maneuver, colored action, distance, instruction, road, sequence
 - Partial: explicitly says it is waiting for complete maneuver information
@@ -46,7 +56,7 @@ Arrow, distance, instruction, and road slots do not intersect. Decorative road i
 
 ## Motion and haptics
 
-Pages use ZeppOS route transitions. A navigation update replaces widgets once; backgrounds do not continuously animate.
+Pages use ZeppOS route transitions. A navigation update replaces widgets once; backgrounds do not continuously animate. Balance may destroy the app on screen-off, so wake relaunch first restores the fresh cached snapshot, automatically returns to the navigation page when the session is still active, and then performs an event-driven resync.
 
 Haptics are global rather than page-owned:
 
@@ -58,10 +68,10 @@ Semantic haptic tokens prevent distance refreshes from vibrating repeatedly. An 
 
 ## Android companion
 
-Android keeps Material 3 and Monet. The project-owner-supplied character artwork appears only in framed status, navigation, and About media areas behind a fixed dark readability scrim; content surfaces remain system-colored and readable in light or dark mode. Night Corridor remains the watch navigation background.
+Android keeps Material 3 and Monet. The project-owner-supplied character artwork appears in framed Android status, navigation, and About media areas behind a fixed dark readability scrim, and as the optional low-opacity circular Navigation Mascot watch theme. Content surfaces remain readable in light or dark mode.
 
 The four equal-priority destinations are Status, Navigation, Diagnostics, and Settings. Android uses the official Material Components `BottomNavigationView`: a full-width, shadowless 80dp M3 navigation bar, 24dp icons, dynamic Monet colors, and a 64 x 32dp active pill. There is no custom drag gesture, floating capsule, or parallel selection animator.
 
-Root fragments are preloaded during idle time and then switched with `show`/`hide`, so repeated tab changes do not reinflate layouts or stack page transitions. About remains a secondary Settings destination and uses Shared Axis X.
+Root fragments are preloaded during idle time and then switched with `show`/`hide`, so repeated tab changes do not reinflate layouts. User-initiated root switches use the existing Material Components `MaterialSharedAxis.X` implementation with a short 180ms duration; About remains a secondary Settings destination.
 
 The navigation timing section and launcher use the project-owner-supplied map marker. ZeppOS target icons are RGBA circles with transparent corners so round launchers do not expose a square plate.

@@ -13,6 +13,8 @@ public final class NavParser {
             "(\\d+(?:\\.\\d+)?)\\s*(公里|千米|米|m|km)", Pattern.CASE_INSENSITIVE);
     private static final Pattern ROAD_PATTERN = Pattern.compile(
             "(?:进入|驶入|沿|上)\\s*([\\u4e00-\\u9fa5A-Za-z0-9]{2,24}(?:路|街|道|桥|高速|国道|乡道|镇道))");
+    private static final Pattern REDUNDANT_SOURCE_SUFFIX = Pattern.compile(
+            "\\s*[|｜·]\\s*(?:高德|百度)(?:地图)?导航(?:中)?$");
 
     private NavParser() {}
 
@@ -32,7 +34,7 @@ public final class NavParser {
 
     public static NavInstruction parseInstruction(String rawText) {
         if (rawText == null || rawText.trim().isEmpty()) return null;
-        String text = normalize(rawText);
+        String text = REDUNDANT_SOURCE_SUFFIX.matcher(normalize(rawText)).replaceFirst("").trim();
         int meters = 0;
         String distanceText = "";
         Matcher distance = DISTANCE_PATTERN.matcher(text);

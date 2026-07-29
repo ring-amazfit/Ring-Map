@@ -2,6 +2,7 @@ import { createWidget, widget, align, prop } from '@zos/ui'
 import { px } from '@zos/utils'
 import { localStorage } from '@zos/storage'
 import { applySavedScreenSetting, isBigTextEnabled, isShowSourceEnabled } from '../utils/settings'
+import { drawThemeBackground } from '../utils/theme'
 import { actionIcon, actionTitle, createActionIcon, deleteAll } from '../utils/icons'
 
 var TEXT = 0xF6FAF8
@@ -10,11 +11,14 @@ var MUTED = 0x6F7C83
 var CYAN = 0x2EDCF2
 var CORAL = 0xFF6E63
 var W = 480
-var ARROW_X = 176
-var ARROW_Y = 100
-var ARROW_SIZE = 128
+var ARROW_X = 164
+var ARROW_Y = 88
+var ARROW_SIZE = 152
+var ACTION_TEXT_SIZE = 28
 var DISTANCE_Y = 246
 var INSTRUCTION_Y = 340
+var INSTRUCTION_TEXT_SIZE = 24
+var BIG_INSTRUCTION_TEXT_SIZE = 26
 var ROAD_Y = 378
 var UPDATED_Y = 408
 var KEY_NAV = 'rm_nav'
@@ -58,13 +62,13 @@ Page({
 
   build() {
     var self = this
-    createWidget(widget.IMG, { x: 0, y: 0, w: px(W), h: px(W), src: 'night-corridor-bg.png' })
+    drawThemeBackground(W)
     self.state.status = text(100, 24, 280, 22, 13, CYAN, '等待手机导航')
-    self.state.action = text(60, 58, 360, 34, 24, TEXT, '等待导航')
+    self.state.action = text(60, 54, 360, 30, ACTION_TEXT_SIZE, TEXT, '等待导航')
     self.state.distance = text(40, DISTANCE_Y, 400, 88,
       isBigTextEnabled() ? 80 : 72, TEXT, '')
     self.state.instruction = text(54, INSTRUCTION_Y, 372, 32,
-      isBigTextEnabled() ? 23 : 21, TEXT, '')
+      isBigTextEnabled() ? BIG_INSTRUCTION_TEXT_SIZE : INSTRUCTION_TEXT_SIZE, TEXT, '')
     self.state.road = text(66, ROAD_Y, 348, 24, 15, SUB, '')
     self.state.updated = text(88, UPDATED_Y, 304, 20, 12, MUTED, '')
     self.state.footer = text(96, 434, 288, 18, 11, MUTED, '协议 v2')
@@ -93,8 +97,17 @@ Page({
     this.renderNav(null, appData.navState)
   },
 
+  clearArrow() {
+    this.state.lastAction = ''
+    deleteAll(this.state.arrowWidgets)
+  },
+
   renderArrow(action) {
     var type = actionIcon(action)
+    if (type === 'wait') {
+      this.clearArrow()
+      return
+    }
     if (type === this.state.lastAction) return
     this.state.lastAction = type
     deleteAll(this.state.arrowWidgets)
@@ -119,7 +132,7 @@ Page({
       this.state.road.setProperty(prop.MORE, { text: '' })
       this.state.updated.setProperty(prop.MORE, { text: '' })
       this.state.footer.setProperty(prop.MORE, { text: '协议 v2 · ' + (connected ? '桥接在线' : '桥接离线') })
-      this.renderArrow('wait')
+      this.clearArrow()
       return
     }
 
@@ -129,7 +142,7 @@ Page({
     this.state.action.setProperty(prop.MORE, { text: title, color: type === 'arrive' ? CORAL : TEXT })
     this.state.distance.setProperty(prop.MORE, { text: distanceText(nav), color: TEXT })
     this.state.instruction.setProperty(prop.MORE, {
-      text: clipped(nav.instruction || title, isBigTextEnabled() ? 14 : 17), color: TEXT
+      text: clipped(nav.instruction || title, isBigTextEnabled() ? 14 : 15), color: TEXT
     })
     var road = clipped(nav.road || '', 18)
     this.state.road.setProperty(prop.MORE, { text: road, color: SUB })

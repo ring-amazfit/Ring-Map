@@ -16,7 +16,7 @@ public final class UiFormat {
     }
 
     public static String metric(long millis) {
-        if (millis < 0L) return "未测得";
+        if (millis < 0L) return "---";
         if (millis < 1000L) return millis + " ms";
         return String.format(Locale.CHINA, "%.2f s", millis / 1000f);
     }

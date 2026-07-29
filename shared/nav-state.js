@@ -97,7 +97,7 @@ function reduceNavPacket(current, packet, receivedAt) {
     }
 
     var ttl = packetNumber(packet.ttlMs, 45000)
-    if (ttl < 5000) ttl = 5000
+    if (ttl < 1000) ttl = 1000
     if (ttl > 120000) ttl = 120000
     var active = copyState(state)
     active.status = 'active'

@@ -142,4 +142,12 @@ function snapshot(sessionId, seq, emittedAt = 1000) {
   assert.equal(duplicate.reason, 'old_seq')
 }
 
+{
+  const nearExpiry = snapshot('session-live', 1, 1000)
+  nearExpiry.ttlMs = 1000
+  const result = reduceNavPacket(createNavState(), nearExpiry, 5000)
+  assert.equal(result.changed, true)
+  assert.equal(result.state.expiresAt, 6000, 'forwarded live packets must retain sub-five-second remaining TTL')
+}
+
 console.log('watch protocol reducer tests passed')

@@ -24,7 +24,7 @@ Copyright and trademark rights in these source icons remain with their respectiv
 
 ## Project-owner-supplied visual assets
 
-The character artwork in `assets/visual-src/user-character.png` and map-marker artwork in `assets/icons-src/user-app-icon.png` were supplied by the project owner for use in RingMap. Derived crops and circular icon variants are packaged in the Android and ZeppOS targets. RingMap does not claim authorship of these supplied works; any underlying rights remain with their respective owner, and redistribution requires the appropriate permission.
+The character artwork in `assets/visual-src/user-character.png` and map-marker artwork in `assets/icons-src/user-app-icon.png` were supplied by the project owner for use in RingMap. Derived Android crops, the optional circular low-opacity ZeppOS theme, and circular icon variants are packaged in the Android and ZeppOS targets. RingMap does not claim authorship of these supplied works; any underlying rights remain with their respective owner, and redistribution requires the appropriate permission.
 
 ## RingMap original visual assets
 

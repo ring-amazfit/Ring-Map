@@ -159,7 +159,7 @@ public final class NavStateRepository {
     public synchronized String diagnosticsText() {
         NavUiState snapshot = buildLocked();
         StringBuilder output = new StringBuilder();
-        output.append("RingMap Android 3.0.0\n")
+        output.append("RingMap Android 3.0.1\n")
                 .append("通知权限: ").append(snapshot.notificationAccess).append('\n')
                 .append("监听连接: ").append(snapshot.listenerConnected).append('\n')
                 .append("服务状态: ").append(snapshot.serviceState).append('\n')
@@ -188,6 +188,7 @@ public final class NavStateRepository {
 
     private NavUiState buildLocked() {
         JSONObject nav = navigation;
+        if (nav != null && !LastNavCache.isFreshAt(nav, now)) nav = null;
         List<NavEvent> events = eventLog.snapshot();
         String latest = events.isEmpty() ? "" : events.get(0).category + " · " + events.get(0).message;
         NavUiState.Builder builder = new NavUiState.Builder()

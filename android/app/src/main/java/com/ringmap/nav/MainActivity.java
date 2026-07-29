@@ -30,6 +30,7 @@ import androidx.lifecycle.Lifecycle;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.shape.ShapeAppearanceModel;
+import com.google.android.material.transition.MaterialSharedAxis;
 import com.ringmap.nav.ui.AboutFragment;
 import com.ringmap.nav.ui.DiagnosticsFragment;
 import com.ringmap.nav.ui.LiveNavigationFragment;
@@ -44,6 +45,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String NAV_LISTENER_PKG = "com.ringmap.nav";
     private static final String STATE_ROOT_INDEX = "root_destination_index";
     private static final String DETAIL_BACK_STACK = "detail";
+    private static final long ROOT_MOTION_DURATION_MS = 180L;
     private static final String[] ROOT_TAGS = {
             "root:status", "root:navigation", "root:diagnostics", "root:settings"
     };
@@ -166,13 +168,16 @@ public class MainActivity extends AppCompatActivity {
         Fragment current = fragments.findFragmentByTag(ROOT_TAGS[currentRootIndex]);
         if (index == currentRootIndex && target != null && !target.isHidden()) return true;
 
+        boolean forward = index > currentRootIndex;
+        boolean targetWasMissing = target == null;
+        if (targetWasMissing) target = createRootFragment(index);
+        prepareRootMotion(current, target, forward);
         androidx.fragment.app.FragmentTransaction transaction = fragments.beginTransaction()
                 .setReorderingAllowed(true);
         if (current != null) {
             transaction.hide(current).setMaxLifecycle(current, Lifecycle.State.STARTED);
         }
-        if (target == null) {
-            target = createRootFragment(index);
+        if (targetWasMissing) {
             transaction.add(R.id.rootPageHost, target, ROOT_TAGS[index]);
         } else {
             transaction.show(target);
@@ -180,6 +185,21 @@ public class MainActivity extends AppCompatActivity {
         transaction.setMaxLifecycle(target, Lifecycle.State.RESUMED).commitNow();
         currentRootIndex = index;
         return true;
+    }
+
+    private void prepareRootMotion(Fragment current, Fragment target, boolean forward) {
+        if (current != null) {
+            current.setExitTransition(rootMotion(forward));
+        }
+        if (target != null) {
+            target.setEnterTransition(rootMotion(forward));
+        }
+    }
+
+    private MaterialSharedAxis rootMotion(boolean forward) {
+        MaterialSharedAxis motion = new MaterialSharedAxis(MaterialSharedAxis.X, forward);
+        motion.setDuration(ROOT_MOTION_DURATION_MS);
+        return motion;
     }
 
     private void preloadRootFragment(int index) {
@@ -240,15 +260,16 @@ public class MainActivity extends AppCompatActivity {
     public void refreshInfrastructure() {
         boolean permission = isNotificationAccessGranted();
         repository.setNotificationAccess(permission);
+        if (permission) {
+            NavBridgeRuntime.ensureStarted(getApplicationContext());
+            requestListenerRebind();
+            startNavigationService();
+        }
         repository.setListenerState(permission && LastNavCache.isListenerConnected(),
                 permission ? LastNavCache.getListenerState() : "未授权");
         repository.setServiceState(NavigationService.isRunning(), NavigationService.getState(),
                 NavigationService.getError());
         repository.setClientCount(NavigationService.getClientCount());
-        if (permission) {
-            requestListenerRebind();
-            startNavigationService();
-        }
     }
 
     public void performReadinessAction(NavUiState state) {
@@ -258,13 +279,17 @@ public class MainActivity extends AppCompatActivity {
                 openNotificationAccessSettings();
                 break;
             case CONNECTING_LISTENER:
+                NavBridgeRuntime.ensureStarted(getApplicationContext());
+                startNavigationService();
                 requestListenerRebind();
-                showToast("已请求系统重新连接通知监听");
+                showToast("正在恢复后台桥与系统通知监听");
                 break;
             case SERVICE_STOPPED:
             case SERVICE_ERROR:
+                NavBridgeRuntime.ensureStarted(getApplicationContext());
                 startNavigationService();
-                showToast("正在启动同步服务");
+                requestListenerRebind();
+                showToast("正在恢复后台同步链路");
                 break;
             default:
                 refreshInfrastructure();
@@ -299,7 +324,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void startNavigationService() {
-        if (NavigationService.isRunning()) return;
+        if (NavigationService.isForegroundRunning()) return;
         try {
             ContextCompat.startForegroundService(this, new Intent(this, NavigationService.class));
         } catch (Exception error) {

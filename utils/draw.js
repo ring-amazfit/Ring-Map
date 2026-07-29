@@ -1,4 +1,4 @@
-import { createWidget, widget } from '@zos/ui'
+import { createWidget, widget, deleteWidget } from '@zos/ui'
 import { px } from '@zos/utils'
 
 // RingMap 内置的 easy-draw 风格线段绘制器，只使用 FILL_RECT，不依赖 Canvas。
@@ -78,7 +78,7 @@ export function circle(cx, cy, radius, color) {
 export function deleteAll(items) {
   for (var i = 0; i < items.length; i++) {
     try {
-      if (items[i] && items[i].deleteWidget) items[i].deleteWidget()
+      if (items[i]) deleteWidget(items[i])
     } catch (e) {}
   }
   items.length = 0

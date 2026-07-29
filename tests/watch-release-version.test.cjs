@@ -5,9 +5,9 @@ const app = JSON.parse(fs.readFileSync('app.json', 'utf8'))
 const about = fs.readFileSync('page/about.js', 'utf8')
 const releaseScript = fs.readFileSync('scripts/build-watch-release.cjs', 'utf8')
 
-assert.strictEqual(app.app.version.code, 9, 'watch version code must increase for the protocol v2 release')
-assert.strictEqual(app.app.version.name, '3.0.0', 'watch version name must identify the product rebuild')
-assert(about.includes('ZeppOS 3.0.0 · APP ID 1121554'), 'about page must report the installable watch version')
+assert.strictEqual(app.app.version.code, 13, 'watch version code must increase for the reliability release')
+assert.strictEqual(app.app.version.name, '3.0.1', 'watch version name must identify the reliability release')
+assert(about.includes('ZeppOS 3.0.1 · APP ID 1121554'), 'about page must report the installable watch version')
 assert(about.includes("src: 'github-qr.png'"), 'about page must include the repository QR')
 for (const target of ['balance', 'gtr4', 'gtr4-limited', 'cheetahpro', 'active2', 'active2-nfc', 'trex3', 'trex3-pro']) {
   assert(releaseScript.includes(`'${target}'`), `release script must build ${target}`)

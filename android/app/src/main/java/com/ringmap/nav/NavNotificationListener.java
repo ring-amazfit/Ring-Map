@@ -14,29 +14,52 @@ import androidx.core.app.NotificationCompat;
 
 import org.json.JSONObject;
 
+import java.util.Arrays;
+import java.util.Comparator;
+
 /** 读取高德/百度系统导航通知，并发布权威协议 v2 快照。 */
 public class NavNotificationListener extends NotificationListenerService {
 
     private static final String TAG = "NavListener";
     private static final long END_VERIFY_DELAY_MS = 1200L;
     private static final long ARRIVAL_END_VERIFY_DELAY_MS = 3500L;
-    private static final long[] REBIND_DELAYS_MS = {3000L, 10000L, 30000L};
+    private static final long[] REBIND_DELAYS_MS = {3000L, 10000L, 30000L, 60000L};
     private static final NavSessionController SESSION = new NavSessionController();
+    private static volatile Handler rebindHandler;
+    private static volatile Handler endHandler;
+    private static int rebindAttempt;
 
-    private static Handler createHandler() {
-        try {
-            Looper current = Looper.myLooper();
-            if (current != null) return new Handler(current);
-        } catch (RuntimeException ignored) {}
-        return null;
+    private static Handler rebindHandler() {
+        Handler handler = rebindHandler;
+        if (handler == null) {
+            synchronized (NavNotificationListener.class) {
+                handler = rebindHandler;
+                if (handler == null) {
+                    handler = new Handler(Looper.getMainLooper());
+                    rebindHandler = handler;
+                }
+            }
+        }
+        return handler;
     }
 
-    private static final Handler REBIND_HANDLER = createHandler();
-    private static final Handler END_HANDLER = createHandler();
-    private static int rebindAttempt;
+    private static Handler endHandler() {
+        Handler handler = endHandler;
+        if (handler == null) {
+            synchronized (NavNotificationListener.class) {
+                handler = endHandler;
+                if (handler == null) {
+                    handler = new Handler(Looper.getMainLooper());
+                    endHandler = handler;
+                }
+            }
+        }
+        return handler;
+    }
 
     private static final Runnable REBIND_TASK = new Runnable() {
         @Override public void run() {
+            if (LastNavCache.isListenerConnected()) return;
             try {
                 requestRebind(new ComponentName(NavNotificationListener.class.getPackage().getName(),
                         NavNotificationListener.class.getName()));
@@ -44,14 +67,17 @@ public class NavNotificationListener extends NotificationListenerService {
             } catch (Exception e) {
                 Log.w(TAG, "Notification listener rebind failed", e);
             }
-            if (rebindAttempt < REBIND_DELAYS_MS.length - 1) {
-                rebindAttempt++;
-                if (REBIND_HANDLER != null) {
-                    REBIND_HANDLER.postDelayed(this, REBIND_DELAYS_MS[rebindAttempt]);
-                }
-            }
+            int index = Math.min(rebindAttempt, REBIND_DELAYS_MS.length - 1);
+            rebindAttempt = Math.min(rebindAttempt + 1, REBIND_DELAYS_MS.length - 1);
+            rebindHandler().postDelayed(this, REBIND_DELAYS_MS[index]);
         }
     };
+
+    private static void scheduleRebind() {
+        rebindHandler().removeCallbacks(REBIND_TASK);
+        rebindAttempt = 0;
+        rebindHandler().postDelayed(REBIND_TASK, REBIND_DELAYS_MS[0]);
+    }
 
     private static final String[] SUPPORTED_NAV_PACKAGES = {
             "com.autonavi.minimap",
@@ -72,11 +98,15 @@ public class NavNotificationListener extends NotificationListenerService {
         Log.i(TAG, "Notification listener connected");
         LastNavCache.setListenerConnected(true, "已连接");
         LastNavCache.setDebug("[监听已连接] 正在扫描地图导航通知");
-        if (REBIND_HANDLER != null) REBIND_HANDLER.removeCallbacks(REBIND_TASK);
+        rebindHandler().removeCallbacks(REBIND_TASK);
+        rebindAttempt = 0;
+        NavBridgeRuntime.ensureStarted(getApplicationContext());
 
         try {
             StatusBarNotification[] active = getActiveNotifications();
             if (active != null) {
+                Arrays.sort(active, Comparator.comparingLong(item ->
+                        item == null ? Long.MIN_VALUE : item.getPostTime()));
                 for (StatusBarNotification item : active) handleNotification(item);
             }
         } catch (SecurityException e) {
@@ -88,6 +118,8 @@ public class NavNotificationListener extends NotificationListenerService {
     @Override
     public void onDestroy() {
         LastNavCache.setListenerConnected(false, "已断开");
+        LastNavCache.setDebug("[监听已销毁] 正在自动恢复");
+        scheduleRebind();
         super.onDestroy();
     }
 
@@ -97,11 +129,7 @@ public class NavNotificationListener extends NotificationListenerService {
         Log.i(TAG, "Notification listener disconnected");
         LastNavCache.setListenerConnected(false, "已断开");
         LastNavCache.setDebug("[监听已断开] 正在自动恢复");
-        if (REBIND_HANDLER != null) {
-            REBIND_HANDLER.removeCallbacks(REBIND_TASK);
-            rebindAttempt = 0;
-            REBIND_HANDLER.postDelayed(REBIND_TASK, REBIND_DELAYS_MS[0]);
-        }
+        scheduleRebind();
     }
 
     @Override
@@ -112,29 +140,36 @@ public class NavNotificationListener extends NotificationListenerService {
     @Override
     public void onNotificationRemoved(StatusBarNotification sbn) {
         if (sbn == null || !isSupportedNavigationPackage(sbn.getPackageName())) return;
-        if (!SESSION.isActive() || !sbn.getPackageName().equals(SESSION.getActiveSource())) return;
+        String activeSource = SESSION.getActiveSource();
+        String activeKey = SESSION.getActiveNotificationKey();
+        if (!SESSION.isActive() || !sbn.getPackageName().equals(activeSource)
+                || !sbn.getKey().equals(activeKey)) return;
 
+        long expectedSeq = SESSION.getSeq();
         long delay = END_VERIFY_DELAY_MS;
         JSONObject current = LastNavCache.get();
         if (current != null && "arrive".equals(current.optString("action"))) {
             delay = ARRIVAL_END_VERIFY_DELAY_MS;
         }
-        if (END_HANDLER != null) {
-            END_HANDLER.removeCallbacksAndMessages(null);
-            END_HANDLER.postDelayed(this::verifyNavigationEnded, delay);
-        } else {
-            verifyNavigationEnded();
-        }
+        endHandler().removeCallbacksAndMessages(null);
+        endHandler().postDelayed(
+                () -> verifyNavigationEnded(activeSource, activeKey, expectedSeq), delay);
     }
 
-    private void verifyNavigationEnded() {
-        String activeSource = SESSION.getActiveSource();
-        if (!SESSION.isActive() || activeSource.isEmpty()) return;
+    private void verifyNavigationEnded(String expectedSource, String expectedKey,
+                                       long expectedSeq) {
+        if (!SESSION.isActive()
+                || !expectedSource.equals(SESSION.getActiveSource())
+                || !expectedKey.equals(SESSION.getActiveNotificationKey())
+                || expectedSeq != SESSION.getSeq()) {
+            Log.d(TAG, "Navigation advanced after notification removal; ignore old end check");
+            return;
+        }
         try {
             StatusBarNotification[] active = getActiveNotifications();
             if (active != null) {
                 for (StatusBarNotification item : active) {
-                    if (item == null || !activeSource.equals(item.getPackageName())) continue;
+                    if (item == null || !expectedSource.equals(item.getPackageName())) continue;
                     String text = notificationText(item.getNotification());
                     if (!isExplicitEnd(text) && NavParser.looksLikeNavigation(text)) {
                         Log.d(TAG, "Navigation notification replacement detected; keep session active");
@@ -146,14 +181,20 @@ public class NavNotificationListener extends NotificationListenerService {
             Log.w(TAG, "Cannot verify navigation notification removal", e);
             return;
         }
-        endNavigation(activeSource, "地图导航通知已全部移除");
+        if (expectedKey.equals(SESSION.getActiveNotificationKey())
+                && expectedSeq == SESSION.getSeq()) {
+            endNavigation(expectedSource, "地图导航通知已全部移除",
+                    System.currentTimeMillis());
+        }
     }
 
     private void handleNotification(StatusBarNotification sbn) {
         if (sbn == null) return;
+        NavBridgeRuntime.ensureStarted(getApplicationContext());
         String sourcePackage = sbn.getPackageName();
         if (!isSupportedNavigationPackage(sourcePackage)) return;
         long capturedAt = System.currentTimeMillis();
+        long notificationAt = sbn.getPostTime() > 0L ? sbn.getPostTime() : capturedAt;
 
         String rawText = notificationText(sbn.getNotification());
         if (TextUtils.isEmpty(rawText)) return;
@@ -161,7 +202,7 @@ public class NavNotificationListener extends NotificationListenerService {
         NavStateRepository.get().onMapNotification(NavProtocol.sourceName(sourcePackage));
 
         if (isExplicitEnd(rawText)) {
-            endNavigation(sourcePackage, rawText);
+            endNavigation(sourcePackage, rawText, notificationAt);
             return;
         }
         if (!NavParser.looksLikeNavigation(rawText)) {
@@ -177,7 +218,7 @@ public class NavNotificationListener extends NotificationListenerService {
         }
 
         NavSessionController.Decision decision = SESSION.accept(
-                sourcePackage, sbn.getKey(), instruction,
+                sourcePackage, sbn.getKey(), instruction, notificationAt,
                 capturedAt, parsedAt, System.currentTimeMillis());
         if (!decision.accepted) {
             Log.d(TAG, "Navigation candidate ignored: " + decision.reason);
@@ -194,9 +235,9 @@ public class NavNotificationListener extends NotificationListenerService {
         NavDataBus.publish(snapshot);
     }
 
-    private void endNavigation(String sourcePackage, String reason) {
+    private void endNavigation(String sourcePackage, String reason, long notificationAt) {
         NavSessionController.EndDecision decision = SESSION.end(sourcePackage,
-                System.currentTimeMillis());
+                notificationAt, System.currentTimeMillis());
         if (!decision.accepted) {
             Log.d(TAG, "Navigation end ignored: " + decision.reason + ", source=" + sourcePackage);
             return;

@@ -28,12 +28,8 @@ public class NavWebSocketServer extends WebSocketServer {
 
     @Override
     public void onOpen(WebSocket connection, ClientHandshake handshake) {
-        // App-Side 只允许一个本机连接。新连接原子替换旧连接，避免旧进程重复广播。
-        for (WebSocket existing : clients) {
-            if (existing == connection) continue;
-            clients.remove(existing);
-            try { existing.close(1000, "superseded"); } catch (Exception ignored) {}
-        }
+        // Zepp 可能同时运行手表页、设置页等多个 App-Side 上下文。
+        // 连接必须并存；互相驱逐会让各自的自动重连形成无限乒乓。
         clients.add(connection);
         long now = System.currentTimeMillis();
         lastClientConnectedAt = now;
@@ -82,7 +78,7 @@ public class NavWebSocketServer extends WebSocketServer {
     }
 
     private void sendCurrentState(WebSocket connection) {
-        JSONObject current = LastNavCache.get();
+        JSONObject current = LastNavCache.getFresh();
         if (current != null) {
             connection.send(current.toString());
         } else {
@@ -94,11 +90,13 @@ public class NavWebSocketServer extends WebSocketServer {
     public void onError(WebSocket connection, Exception error) {
         lastError = error == null ? "WebSocket error" : String.valueOf(error.getMessage());
         NavStateRepository.get().record("桥接", "WebSocket 发生错误");
+        if (connection == null) NavBridgeRuntime.onFatalServerError(this, error);
         Log.e(TAG, "WebSocket error", error);
     }
 
     @Override
     public void onStart() {
+        NavBridgeRuntime.onServerStarted(this);
         Log.i(TAG, "WebSocket server started on " + getAddress());
         NavStateRepository.get().record("桥接", "本机端口 8886 已监听");
         startConnectionLostTimer();

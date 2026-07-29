@@ -2,6 +2,7 @@ import { createWidget, widget, align } from '@zos/ui'
 import { px } from '@zos/utils'
 import { back } from '@zos/router'
 import { applySavedScreenSetting } from '../utils/settings'
+import { drawThemeBackground } from '../utils/theme'
 
 var TEXT = 0xF6FAF8
 var SUB = 0xB5C2C8
@@ -23,9 +24,9 @@ Page({
   },
 
   build() {
-    createWidget(widget.IMG, { x: 0, y: 0, w: px(480), h: px(480), src: 'night-corridor-bg.png' })
+    drawThemeBackground(480)
     text(90, 22, 300, 34, 30, TEXT, 'RINGMAP')
-    text(100, 57, 280, 20, 12, CYAN, 'ZeppOS 3.0.0 · APP ID 1121554')
+    text(100, 57, 280, 20, 12, CYAN, 'ZeppOS 3.0.1 · APP ID 1121554')
     createWidget(widget.IMG, { x: px(152), y: px(104), w: px(176), h: px(176), src: 'github-qr.png' })
     text(90, 294, 300, 24, 16, TEXT, 'GitHub 仓库')
     text(54, 320, 372, 22, 12, SUB, 'github.com/ring-amazfit/Ring-Map')

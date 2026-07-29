@@ -2,8 +2,8 @@
 
 RingMap 将手机系统中的高德/百度导航通知实时同步到 ZeppOS 手表。它只展示当前下一步，不自行定位、规划路线或请求地图 API。
 
-- Android：`3.0.0`，包名 `com.ringmap.nav`
-- ZeppOS：`3.0.0`，App ID `1121554`
+- Android：`3.0.1`，包名 `com.ringmap.nav`
+- ZeppOS：`3.0.1`，App ID `1121554`
 - 同步协议：`v2`
 - 仓库：<https://github.com/ring-amazfit/Ring-Map>
 
@@ -37,9 +37,11 @@ Android 是导航会话的唯一权威。每个权威状态携带单调 `stateRe
 - 高德地图与百度地图系统导航通知解析
 - 26 类导航动作：直行、普通/轻微/急转、前后方、左右掉头、靠左/靠右、环岛、合流、分叉、出口、到达、重新规划和等待
 - 语义去重、单调序号、来源锁定、通知替换宽限和 45 秒旧数据失效
-- App-Side 单 WebSocket、连接代次保护、有限退避和 10 秒心跳
+- 每个 App-Side 上下文保持单 WebSocket；Android 允许 Zepp 的多个合法 companion 上下文并存，避免相互驱逐重连
 - 手表 accepted/applied ACK 与 Android -> App-Side -> Watch 分段时序诊断
-- 自动进入导航、骑行大字、持续亮屏、显示来源、手动重新同步
+- 自动进入导航、骑行大字、持续亮屏、显示来源，以及唤醒后的自动重连与快照恢复
+- 夜骑道路、纯黑、导航娘三套手表主题；等待连接/确认时只显示文字
+- 152px 手表动作图与 152dp Android 动作槽位
 - 三态震动：关闭、仅新转向、转向 + 500/200/80 米临近提醒
 - Android Material 3 / Monet 多页面界面：状态、实时导航、诊断、设置、关于
 - 手表关于页 GitHub 二维码；Android 关于页直接打开仓库
@@ -110,8 +112,8 @@ Android 工程使用 Java 17、minSdk 24、targetSdk 35、Material 3 和 Java-We
 
 ```text
 app.js                 ZeppOS 全局协议 reducer、TTL、路由和 ACK
-app-side/index.js      Android WebSocket 与 MessageBuilder 单连接中继
-page/                  手表主页、导航、设置、关于
+app-side/index.js      Android WebSocket 与 MessageBuilder 自恢复中继
+page/                  手表主页、导航、主题、设置、关于
 shared/                消息、协议和振动纯函数
 assets/<target>/       各设备原生运行资源
 android/               Android 配套端源码镜像

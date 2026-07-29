@@ -82,8 +82,12 @@ public final class LiveNavigationFragment extends Fragment {
         emptyGroup.setVisibility(View.GONE);
         source.setText((state.sourceName.isEmpty() ? "系统导航" : state.sourceName)
                 + " · #" + state.seq);
-        actionImage.setImageResource(UiFormat.actionIcon(state.action));
-        actionImage.setContentDescription(UiFormat.actionTitle(state.action));
+        boolean showDirection = !"wait".equals(state.action);
+        actionImage.setVisibility(showDirection ? View.VISIBLE : View.GONE);
+        if (showDirection) {
+            actionImage.setImageResource(UiFormat.actionIcon(state.action));
+            actionImage.setContentDescription(UiFormat.actionTitle(state.action));
+        }
         distance.setText(state.distanceText.isEmpty() ? "—" : state.distanceText);
         instruction.setText(state.instruction.isEmpty()
                 ? UiFormat.actionTitle(state.action) : state.instruction);

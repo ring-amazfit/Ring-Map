@@ -68,15 +68,15 @@ IDLE -> ACTIVE(sessionId, seq) -> STALE -> ENDED(tombstone) -> IDLE
 4. Reject a different session whose `sessionStartedAt` is not newer, including while IDLE with an ended-session tombstone.
 5. Apply `nav_end` only when its `sessionId` equals the current session and its seq is not older; retain its identity and revision as a tombstone.
 6. Apply `idle` only when its authority revision is newer than the retained state.
-7. Measure TTL from watch receipt time, not Android wall-clock time.
+7. App-Side reduces `ttlMs` to the remaining lifetime derived from the original `emittedAt`. A newly received live snapshot may be forwarded with as little as 1 second remaining; persisted cache replays require at least 5 seconds remaining. The watch measures the forwarded remainder from receipt time.
 8. A `quality=partial` banner cannot replace a fresh complete instruction.
-9. Identical semantic fingerprints within 1.5 seconds are dropped. Later identical refreshes may renew TTL but retain the same haptic token.
+9. Identical semantic fingerprints within 5 seconds are dropped. Later identical refreshes may renew TTL but retain the same haptic token.
 
 ## Connection recovery
 
-App-Side allows one WebSocket and one reconnect timer. Every socket callback captures a connection epoch; callbacks from replaced sockets are ignored. Reconnect delays are 1, 2, 4, 8, then 15 seconds with bounded jitter.
+Each Zepp App-Side context allows one WebSocket and one reconnect timer. Every socket callback captures a connection epoch; callbacks from replaced sockets in that context are ignored. Reconnect delays are 1, 2, 4, 8, then 15 seconds with bounded jitter.
 
-Android also closes an existing localhost bridge when a replacement connects. On open or `hello/resync`, Android sends only the current authority state.
+Zepp may run multiple legitimate companion contexts at once. Android accepts those localhost clients concurrently instead of letting them evict one another. On open or `hello/resync`, Android sends only the current fresh authority state.
 
 ## Timing fields
 

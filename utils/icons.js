@@ -1,4 +1,4 @@
-import { createWidget, widget } from '@zos/ui'
+import { createWidget, widget, deleteWidget } from '@zos/ui'
 import { px } from '@zos/utils'
 
 var ICONS = {
@@ -78,7 +78,7 @@ export function actionTitle(action) {
 
 export function createActionIcon(action, x, y, size) {
   var type = actionIcon(action)
-  var side = size || 128
+  var side = size || 152
   return createWidget(widget.IMG, {
     x: px(x === undefined ? 176 : x),
     y: px(y === undefined ? 100 : y),
@@ -90,7 +90,7 @@ export function createActionIcon(action, x, y, size) {
 export function deleteAll(items) {
   for (var i = 0; i < items.length; i++) {
     try {
-      if (items[i] && items[i].deleteWidget) items[i].deleteWidget()
+      if (items[i]) deleteWidget(items[i])
     } catch (e) {}
   }
   items.length = 0

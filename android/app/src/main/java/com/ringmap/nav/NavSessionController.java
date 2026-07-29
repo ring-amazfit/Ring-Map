@@ -8,7 +8,7 @@ import java.util.UUID;
 /** Android 端唯一导航会话控制器。纯 Java，便于覆盖时序和去重测试。 */
 public final class NavSessionController {
 
-    public static final long DUPLICATE_WINDOW_MS = 1500L;
+    public static final long DUPLICATE_WINDOW_MS = 5000L;
     public static final long COMPLETE_FRESHNESS_MS = 90_000L;
     public static final long SOURCE_STALE_MS = 90_000L;
     public static final long SNAPSHOT_TTL_MS = 45_000L;
@@ -81,10 +81,12 @@ public final class NavSessionController {
     private long sessionStartedAt;
     private long seq;
     private String sourcePackage = "";
+    private String activeNotificationKey = "";
     private String lastFingerprint = "";
     private String lastQuality = "";
     private long lastEmittedAt;
     private long lastCompleteAt;
+    private long lastNotificationAt;
 
     public NavSessionController() {
         this(() -> UUID.randomUUID().toString());
@@ -95,22 +97,34 @@ public final class NavSessionController {
         this.sessionIdFactory = sessionIdFactory;
     }
 
+    public Decision accept(String candidateSource, String notificationKey,
+                           NavInstruction instruction, long capturedAt,
+                           long parsedAt, long emittedAt) {
+        return accept(candidateSource, notificationKey, instruction, capturedAt,
+                capturedAt, parsedAt, emittedAt);
+    }
+
     public synchronized Decision accept(String candidateSource, String notificationKey,
-                                        NavInstruction instruction, long capturedAt,
-                                        long parsedAt, long emittedAt) {
+                                        NavInstruction instruction, long notificationAt,
+                                        long capturedAt, long parsedAt, long emittedAt) {
         String source = clean(candidateSource);
         if (source.isEmpty() || instruction == null) {
             return rejected("invalid_candidate", instruction, source, notificationKey,
                     capturedAt, parsedAt, emittedAt);
         }
-        if (active && !sourcePackage.equals(source)) {
-            if (lastEmittedAt > 0L && emittedAt - lastEmittedAt > SOURCE_STALE_MS) {
-                reset();
-            } else {
-                return rejected("source_locked", instruction, source, notificationKey,
-                        capturedAt, parsedAt, emittedAt);
-            }
+        long eventAt = notificationAt > 0L ? notificationAt : capturedAt;
+        if (active && lastNotificationAt > 0L && eventAt < lastNotificationAt) {
+            return rejected("old_notification", instruction, source, notificationKey,
+                    capturedAt, parsedAt, emittedAt);
         }
+        if (active && lastEmittedAt > 0L && emittedAt - lastEmittedAt > SOURCE_STALE_MS) {
+            reset();
+        }
+        if (active && !sourcePackage.equals(source)) {
+            return rejected("source_locked", instruction, source, notificationKey,
+                    capturedAt, parsedAt, emittedAt);
+        }
+        if (active) lastNotificationAt = Math.max(lastNotificationAt, eventAt);
 
         String quality = qualityOf(instruction);
         String fingerprint = fingerprintOf(instruction);
@@ -135,19 +149,27 @@ public final class NavSessionController {
             lastQuality = "";
             lastEmittedAt = 0L;
             lastCompleteAt = 0L;
+            lastNotificationAt = 0L;
         }
 
         seq++;
+        activeNotificationKey = clean(notificationKey);
         lastFingerprint = fingerprint;
         lastQuality = quality;
         lastEmittedAt = emittedAt;
+        lastNotificationAt = Math.max(lastNotificationAt, eventAt);
         if ("complete".equals(quality)) lastCompleteAt = emittedAt;
         return new Decision(true, "accepted", sessionId, sessionStartedAt, seq,
                 sourcePackage, clean(notificationKey), quality, fingerprint,
                 capturedAt, parsedAt, emittedAt, instruction);
     }
 
-    public synchronized EndDecision end(String candidateSource, long emittedAt) {
+    public EndDecision end(String candidateSource, long emittedAt) {
+        return end(candidateSource, emittedAt, emittedAt);
+    }
+
+    public synchronized EndDecision end(String candidateSource, long notificationAt,
+                                        long emittedAt) {
         if (!active) {
             return new EndDecision(false, "idle", "", 0L, 0L,
                     clean(candidateSource), emittedAt);
@@ -156,6 +178,11 @@ public final class NavSessionController {
         if (!source.isEmpty() && !sourcePackage.equals(source)) {
             return new EndDecision(false, "source_mismatch", sessionId,
                     sessionStartedAt, seq, source, emittedAt);
+        }
+        if (notificationAt > 0L && lastNotificationAt > 0L
+                && notificationAt < lastNotificationAt) {
+            return new EndDecision(false, "old_notification", sessionId,
+                    sessionStartedAt, seq, sourcePackage, emittedAt);
         }
 
         long endSeq = seq + 1L;
@@ -181,6 +208,10 @@ public final class NavSessionController {
         return seq;
     }
 
+    public synchronized String getActiveNotificationKey() {
+        return activeNotificationKey;
+    }
+
     private Decision rejected(String reason, NavInstruction instruction, String source,
                               String notificationKey, long capturedAt, long parsedAt,
                               long emittedAt) {
@@ -196,10 +227,12 @@ public final class NavSessionController {
         sessionStartedAt = 0L;
         seq = 0L;
         sourcePackage = "";
+        activeNotificationKey = "";
         lastFingerprint = "";
         lastQuality = "";
         lastEmittedAt = 0L;
         lastCompleteAt = 0L;
+        lastNotificationAt = 0L;
     }
 
     public static String qualityOf(NavInstruction instruction) {

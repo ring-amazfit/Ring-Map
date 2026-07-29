@@ -47,7 +47,7 @@ public class NavSessionControllerTest {
     }
 
     @Test
-    public void suppressesSemanticDuplicatesInsideWindowButAllowsRefreshLater() {
+    public void suppressesSemanticDuplicatesForFiveSecondsButAllowsTtlRefreshLater() {
         NavSessionController controller = controller();
         NavInstruction instruction = instruction("前方200米左转进入中山路", "turn_left", 200, "中山路");
 
@@ -55,15 +55,19 @@ public class NavSessionControllerTest {
                 "com.autonavi.minimap", "key-a", instruction, 1000L, 1010L, 1020L);
         NavSessionController.Decision duplicate = controller.accept(
                 "com.autonavi.minimap", "key-b", instruction, 1100L, 1110L, 1120L);
-        NavSessionController.Decision refresh = controller.accept(
+        NavSessionController.Decision twoSecondRefresh = controller.accept(
                 "com.autonavi.minimap", "key-c", instruction, 3000L, 3010L, 3020L);
+        NavSessionController.Decision ttlRefresh = controller.accept(
+                "com.autonavi.minimap", "key-d", instruction, 6020L, 6030L, 6040L);
 
         assertTrue(first.accepted);
         assertFalse(duplicate.accepted);
         assertEquals("duplicate", duplicate.reason);
-        assertTrue(refresh.accepted);
-        assertEquals(2L, refresh.seq);
-        assertEquals(first.fingerprint, refresh.fingerprint);
+        assertFalse(twoSecondRefresh.accepted);
+        assertEquals("duplicate", twoSecondRefresh.reason);
+        assertTrue(ttlRefresh.accepted);
+        assertEquals(2L, ttlRefresh.seq);
+        assertEquals(first.fingerprint, ttlRefresh.fingerprint);
     }
 
     @Test
@@ -154,5 +158,72 @@ public class NavSessionControllerTest {
         assertFalse(end.accepted);
         assertEquals("source_mismatch", end.reason);
         assertTrue(controller.isActive());
+    }
+
+    @Test
+    public void rejectsOlderNotificationEventProcessedAfterNewerInstruction() {
+        NavSessionController controller = controller();
+        NavSessionController.Decision current = controller.accept(
+                "com.autonavi.minimap", "new-key",
+                instruction("前方100米右转", "turn_right", 100, "中山路"),
+                2000L, 2010L, 2020L, 2030L);
+        NavSessionController.Decision delayedOld = controller.accept(
+                "com.autonavi.minimap", "old-key",
+                instruction("前方300米直行", "straight", 300, "中山路"),
+                1500L, 3000L, 3010L, 3020L);
+
+        assertTrue(current.accepted);
+        assertFalse(delayedOld.accepted);
+        assertEquals("old_notification", delayedOld.reason);
+        assertEquals(1L, controller.getSeq());
+    }
+
+    @Test
+    public void delayedOldEndCannotTerminateNewerNavigationEvent() {
+        NavSessionController controller = controller();
+        controller.accept(
+                "com.autonavi.minimap", "new-key",
+                instruction("前方100米右转", "turn_right", 100, "中山路"),
+                2000L, 2010L, 2020L, 2030L);
+
+        NavSessionController.EndDecision end = controller.end(
+                "com.autonavi.minimap", 1500L, 3000L);
+
+        assertFalse(end.accepted);
+        assertEquals("old_notification", end.reason);
+        assertTrue(controller.isActive());
+    }
+
+    @Test
+    public void tracksTheNotificationIdentityThatOwnsTheCurrentSnapshot() {
+        NavSessionController controller = controller();
+        controller.accept(
+                "com.autonavi.minimap", "old-key",
+                instruction("前方300米直行", "straight", 300, "旧路"),
+                1000L, 1010L, 1020L, 1030L);
+        controller.accept(
+                "com.autonavi.minimap", "current-key",
+                instruction("前方100米左转", "turn_left", 100, "新路"),
+                2000L, 2010L, 2020L, 2030L);
+
+        assertEquals("current-key", controller.getActiveNotificationKey());
+        assertEquals(2L, controller.getSeq());
+    }
+
+    @Test
+    public void sameSourceStartsNewSessionAfterLongSilence() {
+        NavSessionController controller = controller();
+        NavSessionController.Decision first = controller.accept(
+                "com.autonavi.minimap", "old-key",
+                instruction("前方300米直行", "straight", 300, "旧路"),
+                1000L, 1010L, 1020L, 1030L);
+        NavSessionController.Decision next = controller.accept(
+                "com.autonavi.minimap", "new-key",
+                instruction("前方100米左转", "turn_left", 100, "新路"),
+                100_000L, 100_010L, 100_020L, 100_030L);
+
+        assertTrue(next.accepted);
+        assertNotEquals(first.sessionId, next.sessionId);
+        assertEquals(1L, next.seq);
     }
 }

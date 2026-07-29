@@ -27,6 +27,7 @@ export function applyKeepScreen(enabled) {
     console.log('RingMap: set bright time failed', e)
   }
   try {
+    // Balance 息屏会销毁应用；允许系统重启后先恢复缓存，再自动 resync。
     setWakeUpRelaunch({ relaunch: true })
   } catch (e) {
     console.log('RingMap: set wake relaunch failed', e)

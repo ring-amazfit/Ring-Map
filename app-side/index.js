@@ -1,5 +1,5 @@
 /**
- * RingMap App-Side - Android WebSocket 与 ZeppOS MessageBuilder 的唯一中继。
+ * RingMap App-Side - 每个 Zepp companion 上下文的 WebSocket 与 MessageBuilder 中继。
  * Android 是导航会话权威；本层只缓存和转发最新协议快照。
  */
 
@@ -7,6 +7,11 @@ import { MessageBuilder } from '../shared/message-side'
 
 var WS_URL = 'ws://127.0.0.1:8886'
 var RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]
+var HEARTBEAT_INTERVAL_MS = 10000
+var PONG_TIMEOUT_MS = 15000
+var MIN_CACHE_REPLAY_MS = 5000
+var NAV_CACHE_KEY = '_rm_nav_packet'
+var NAV_CACHE_AT_KEY = '_rm_nav_packet_at'
 var messageBuilder = new MessageBuilder()
 var ws = null
 var connectionState = 'disconnected'
@@ -16,6 +21,13 @@ var heartbeatTimer = null
 var reconnectAttempt = 0
 var destroyed = false
 var lastNavData = null
+var lastNavDataAt = 0
+var lastPingAt = 0
+var lastPongAt = 0
+var resyncPending = false
+var messageBridgeInitialized = false
+var lastStoredStatus = ''
+var lastStoredMessage = ''
 var messageQueue = Promise.resolve()
 
 function getSettingsStorage() {
@@ -44,11 +56,15 @@ function removeStorageItem(key) {
 }
 
 function setStatus(status, message) {
-  setStorageItem('_rm_status', status)
-  setStorageItem('rm_status', status)
-  if (message !== undefined) {
+  if (status !== lastStoredStatus) {
+    setStorageItem('_rm_status', status)
+    setStorageItem('rm_status', status)
+    lastStoredStatus = status
+  }
+  if (message !== undefined && message !== lastStoredMessage) {
     setStorageItem('_rm_msg', message)
     setStorageItem('rm_msg', message)
+    lastStoredMessage = message
   }
 }
 
@@ -98,13 +114,14 @@ function sendToAndroid(packet) {
     return true
   } catch (e) {
     console.log('RingMap: Android send failed', e)
+    markDisconnected(connectionEpoch, ws, 'error', 'Android 导航桥发送失败')
     return false
   }
 }
 
 function requestLatest(reason, sourcePacket) {
   var current = lastNavData || {}
-  sendToAndroid({
+  var sent = sendToAndroid({
     protocolVersion: 2,
     type: 'resync',
     bridgeId: currentBridgeId,
@@ -113,12 +130,77 @@ function requestLatest(reason, sourcePacket) {
     seq: sourcePacket && sourcePacket.seq || current.seq || 0,
     emittedAt: Date.now()
   })
+  if (!sent) resyncPending = true
+  return sent
+}
+
+function snapshotTtl(packet) {
+  var ttl = Number(packet && packet.ttlMs || 45000)
+  return Math.max(5000, Math.min(120000, ttl))
+}
+
+function cachedNavigationRemainingMs() {
+  if (!lastNavData || lastNavDataAt <= 0) return 0
+  var emittedAt = Number(lastNavData.emittedAt || 0)
+  var base = emittedAt > 0 ? emittedAt : lastNavDataAt
+  return base + snapshotTtl(lastNavData) - Date.now()
+}
+
+function hasFreshCachedNavigation() {
+  return cachedNavigationRemainingMs() >= MIN_CACHE_REPLAY_MS
+}
+
+function cachedNavigationForWatch(minimumRemainingMs) {
+  var minimum = Number(minimumRemainingMs || MIN_CACHE_REPLAY_MS)
+  var remaining = cachedNavigationRemainingMs()
+  if (remaining < minimum) return null
+  var packet = {}
+  Object.keys(lastNavData).forEach(function(key) { packet[key] = lastNavData[key] })
+  packet.ttlMs = Math.max(1000,
+    Math.min(snapshotTtl(lastNavData), Math.floor(remaining)))
+  return packet
+}
+
+function rememberNavigation(packet) {
+  lastNavData = packet
+  lastNavDataAt = Date.now()
+  var storage = getSettingsStorage()
+  try {
+    var value = JSON.stringify(packet)
+    if (storage) {
+      storage.setItem(NAV_CACHE_KEY, value)
+      storage.setItem(NAV_CACHE_AT_KEY, String(lastNavDataAt))
+    } else if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(NAV_CACHE_KEY, value)
+      localStorage.setItem(NAV_CACHE_AT_KEY, String(lastNavDataAt))
+    }
+  } catch (e) {
+    console.log('RingMap: navigation cache write failed', e)
+  }
+}
+
+function restoreCachedNavigation() {
+  var storage = getSettingsStorage()
+  try {
+    var raw = storage ? storage.getItem(NAV_CACHE_KEY) : localStorage.getItem(NAV_CACHE_KEY)
+    var cachedAt = Number(storage ? storage.getItem(NAV_CACHE_AT_KEY) : localStorage.getItem(NAV_CACHE_AT_KEY))
+    if (!raw || !cachedAt) return
+    var packet = JSON.parse(raw)
+    lastNavData = packet
+    lastNavDataAt = cachedAt
+    if (!hasFreshCachedNavigation()) clearCachedNavigation()
+  } catch (e) {
+    clearCachedNavigation()
+  }
 }
 
 function clearCachedNavigation() {
   lastNavData = null
+  lastNavDataAt = 0
   removeStorageItem('rm_nav')
-  setStorageItem('rm_status', 'idle')
+  removeStorageItem(NAV_CACHE_KEY)
+  removeStorageItem(NAV_CACHE_AT_KEY)
+  setStatus('idle', '等待系统导航')
 }
 
 function handleProtocolPacket(packet) {
@@ -128,8 +210,17 @@ function handleProtocolPacket(packet) {
   if (packet.type === 'nav_snapshot') {
     packet.sourceName = packet.sourceName || sourceLabel(packet)
     lastNavData = packet
+    lastNavDataAt = Date.now()
+    var watchPacket = cachedNavigationForWatch(1000)
+    if (!watchPacket) {
+      clearCachedNavigation()
+      requestLatest('expired_snapshot')
+      return
+    }
+    // 控件更新优先于缓存落盘，避免同步存储拖慢骑行提示。
+    sendToWatchPacket(watchPacket)
+    rememberNavigation(packet)
     setStatus('navigating', '导航数据已同步')
-    sendToWatchPacket(packet)
     return
   }
 
@@ -153,6 +244,8 @@ function handleProtocolPacket(packet) {
   }
 
   if (packet.type === 'pong') {
+    lastPongAt = Date.now()
+    lastPingAt = 0
     setStatus('connected', 'Android 导航桥在线')
   }
 }
@@ -212,19 +305,62 @@ function cancelHeartbeat() {
   }
 }
 
+function markDisconnected(epoch, socket, status, message) {
+  if (destroyed || epoch !== connectionEpoch || socket !== ws) return
+  connectionEpoch++
+  ws = null
+  connectionState = 'disconnected'
+  lastPingAt = 0
+  lastPongAt = 0
+  cancelHeartbeat()
+  setStatus(status || 'disconnected', message || '连接已断开')
+  sendBridgeState(status || 'disconnected', message || '连接已断开')
+  try { socket.close() } catch (e) {}
+  scheduleReconnect()
+}
+
+function reconnectNow(message) {
+  if (destroyed) return
+  cancelReconnect()
+  cancelHeartbeat()
+  var socket = ws
+  connectionEpoch++
+  ws = null
+  connectionState = 'disconnected'
+  lastPingAt = 0
+  lastPongAt = 0
+  messageQueue = Promise.resolve()
+  if (socket) {
+    try { socket.close() } catch (e) {}
+  }
+  setStatus('connecting', message || '正在恢复 Android 导航桥')
+  sendBridgeState('connecting', message || '正在恢复 Android 导航桥')
+  connectWebSocket()
+}
+
 function scheduleHeartbeat(epoch, socket) {
   cancelHeartbeat()
   heartbeatTimer = setTimeout(function heartbeat() {
     heartbeatTimer = null
     if (!isCurrentSocket(epoch, socket) || connectionState !== 'open') return
-    sendToAndroid({
+    var now = Date.now()
+    if (lastPingAt > 0) {
+      if (now - lastPingAt > PONG_TIMEOUT_MS) {
+        markDisconnected(epoch, socket, 'disconnected', 'Android 导航桥心跳超时')
+        return
+      }
+      scheduleHeartbeat(epoch, socket)
+      return
+    }
+    lastPingAt = now
+    if (!sendToAndroid({
       protocolVersion: 2,
       type: 'ping',
       bridgeId: currentBridgeId,
-      emittedAt: Date.now()
-    })
+      emittedAt: now
+    })) return
     scheduleHeartbeat(epoch, socket)
-  }, 10000)
+  }, HEARTBEAT_INTERVAL_MS)
 }
 
 function scheduleReconnect() {
@@ -244,6 +380,7 @@ function connectWebSocket() {
   if (destroyed || connectionState === 'open' || connectionState === 'connecting') return
   cancelReconnect()
   connectionState = 'connecting'
+  messageQueue = Promise.resolve()
   var epoch = ++connectionEpoch
   var socket
 
@@ -263,6 +400,8 @@ function connectWebSocket() {
     if (!isCurrentSocket(epoch, socket)) return
     connectionState = 'open'
     reconnectAttempt = 0
+    lastPongAt = Date.now()
+    lastPingAt = 0
     setStatus('connected', '已连接 Android 导航桥')
     sendBridgeState('connected', 'Android 导航桥在线')
     sendToAndroid({
@@ -273,6 +412,10 @@ function connectWebSocket() {
       seq: lastNavData && lastNavData.seq || 0,
       emittedAt: Date.now()
     })
+    if (resyncPending) {
+      resyncPending = false
+      requestLatest('pending_recovery')
+    }
     scheduleHeartbeat(epoch, socket)
   }
 
@@ -280,35 +423,26 @@ function connectWebSocket() {
     if (!isCurrentSocket(epoch, socket) || !event || event.data === undefined) return
     messageQueue = messageQueue
       .then(function() { return frameToText(event.data) })
-      .then(handleFrameText)
+      .then(function(text) {
+        if (isCurrentSocket(epoch, socket)) handleFrameText(text)
+      })
       .catch(function(error) { console.log('RingMap: frame decode failed', error) })
   }
 
   socket.onclose = function() {
-    if (!isCurrentSocket(epoch, socket)) return
-    connectionState = 'disconnected'
-    ws = null
-    cancelHeartbeat()
-    setStatus('disconnected', '正在恢复 Android 导航桥')
-    sendBridgeState('disconnected', '连接已断开')
-    scheduleReconnect()
+    markDisconnected(epoch, socket, 'disconnected', '连接已断开')
   }
 
   socket.onerror = function() {
-    if (!isCurrentSocket(epoch, socket)) return
-    connectionState = 'disconnected'
-    ws = null
-    cancelHeartbeat()
-    setStatus('error', 'Android 导航桥连接错误')
-    sendBridgeState('error', '连接错误')
-    try { socket.close() } catch (e) {}
-    scheduleReconnect()
+    markDisconnected(epoch, socket, 'error', 'Android 导航桥连接错误')
   }
 }
 
 function forwardDevicePacket(packet) {
   if (!packet) return
   if (packet.type === 'watch_ready' || packet.type === 'resync') {
+    var cachedPacket = cachedNavigationForWatch()
+    if (cachedPacket) sendToWatchPacket(cachedPacket)
     requestLatest(packet.type, packet)
     return
   }
@@ -320,23 +454,38 @@ function forwardDevicePacket(packet) {
   }
 }
 
+function ensureDeviceMessageBridge() {
+  if (messageBridgeInitialized) return
+  messageBridgeInitialized = true
+  messageBuilder.listen(function() {})
+  messageBuilder.on('call', function(context) {
+    try {
+      forwardDevicePacket(messageBuilder.buf2Json(context.payload))
+    } catch (e) {
+      console.log('RingMap: device message parse error', e)
+    }
+  })
+}
+
 AppSideService({
   onInit() {
     destroyed = false
-    messageBuilder.listen(function() {})
-    messageBuilder.on('call', function(context) {
-      try {
-        forwardDevicePacket(messageBuilder.buf2Json(context.payload))
-      } catch (e) {
-        console.log('RingMap: device message parse error', e)
-      }
-    })
+    restoreCachedNavigation()
+    ensureDeviceMessageBridge()
     setStatus('disconnected', '正在连接 Android 导航桥')
     connectWebSocket()
   },
 
   onRun() {
-    connectWebSocket()
+    if (connectionState === 'open') {
+      if (!lastPongAt || Date.now() - lastPongAt >= HEARTBEAT_INTERVAL_MS) {
+        reconnectNow('手表唤醒，正在确认 Android 导航桥')
+      } else {
+        requestLatest('app_side_run')
+      }
+    } else {
+      connectWebSocket()
+    }
   },
 
   onDestroy() {
@@ -345,11 +494,12 @@ AppSideService({
     cancelReconnect()
     cancelHeartbeat()
     connectionState = 'disconnected'
+    messageQueue = Promise.resolve()
     var socket = ws
     ws = null
     if (socket) {
       try { socket.close() } catch (e) {}
     }
-    setStatus('idle', '')
+    setStatus('disconnected', 'Android 导航桥已停止')
   }
 })
