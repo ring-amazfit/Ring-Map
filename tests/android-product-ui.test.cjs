@@ -1,0 +1,49 @@
+const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
+
+const android = 'android/app/src/main'
+const java = path.join(android, 'java/com/ringmap/nav')
+const res = path.join(android, 'res')
+const main = fs.readFileSync(path.join(java, 'MainActivity.java'), 'utf8')
+const layout = fs.readFileSync(path.join(res, 'layout/activity_main.xml'), 'utf8')
+const menu = fs.readFileSync(path.join(res, 'menu/menu_bottom_navigation.xml'), 'utf8')
+const app = fs.readFileSync(path.join(java, 'RingMapApp.java'), 'utf8')
+const build = fs.readFileSync('android/app/build.gradle', 'utf8')
+
+for (const fragment of ['StatusFragment', 'LiveNavigationFragment', 'DiagnosticsFragment', 'SettingsFragment', 'AboutFragment']) {
+  assert.ok(fs.existsSync(path.join(java, `ui/${fragment}.java`)), `missing ${fragment}`)
+}
+for (const fragment of ['StatusFragment', 'LiveNavigationFragment', 'DiagnosticsFragment', 'SettingsFragment']) {
+  const source = fs.readFileSync(path.join(java, `ui/${fragment}.java`), 'utf8')
+  assert.ok(!source.includes('MaterialFadeThrough'), `${fragment} must not stack page transitions during rapid tab switching`)
+}
+assert.match(layout, /com\.google\.android\.material\.bottomnavigation\.BottomNavigationView/, 'main activity must use the official Material navigation bar')
+assert.ok(!layout.includes('bottomNavContainer') && !layout.includes('bottomSelectionIndicator'), 'custom capsule and thumb layers must be removed')
+assert.ok(main.includes('setItemActiveIndicatorEnabled(true)'), 'official Material active indicator must remain enabled')
+assert.ok(main.includes('setItemActiveIndicatorWidth(dp(64))') && main.includes('setItemActiveIndicatorHeight(dp(32))'), 'M3 active pill must use 64x32dp')
+assert.ok(main.includes('ShapeAppearanceModel.builder().setAllCornerSizes(dp(16))'), 'M3 active pill must use a full 16dp corner radius')
+for (const id of ['statusFragment', 'liveNavigationFragment', 'diagnosticsFragment', 'settingsFragment']) {
+  assert.ok(menu.includes(id), `navigation menu missing ${id}`)
+}
+assert.equal((menu.match(/<item/g) || []).length, 4, 'bottom navigation must have four root destinations')
+assert.ok(layout.includes('rootPageHost') && !layout.includes('NavHostFragment'), 'cached root pages must replace the fragment navigator host')
+assert.ok(main.includes('NavStateRepository'), 'activity must publish system state through the repository')
+assert.ok(main.includes('setOnItemSelectedListener'), 'official Material navigation bar must own destination selection')
+assert.ok(main.includes('preloadRootFragment') && main.includes('.hide(root)') && main.includes('.show(target)'), 'root fragments must be cached for fast repeated switching')
+assert.ok(main.includes('detailOpening') && main.includes('addOnBackStackChangedListener'), 'About navigation must reject duplicate asynchronous opens')
+assert.ok(!main.includes('ValueAnimator') && !main.includes('beginBottomDrag'), 'custom navigation animation and drag state must be removed')
+assert.ok(fs.existsSync(path.join(res, 'color/bottom_nav_icon_colors.xml')), 'M3 navigation icon colors missing')
+assert.ok(fs.existsSync(path.join(res, 'color/bottom_nav_text_colors.xml')), 'M3 navigation label colors missing')
+assert.ok(!main.includes('statePoller'), 'activity must not poll and reconstruct UI state every 1.5 seconds')
+assert.ok(app.includes('DynamicColors.applyToActivitiesIfAvailable'), 'Material You dynamic color must remain enabled')
+assert.ok(build.includes('versionName "3.0.0"'), 'Android product rebuild must expose version 3.0.0')
+assert.ok(!build.includes('androidx.navigation'), 'unused Navigation Component dependencies must be removed')
+assert.ok(main.includes('https://github.com/ring-amazfit/Ring-Map'), 'About action must use the public repository URL')
+assert.ok(fs.existsSync(path.join(res, 'drawable-nodpi/ringmap_character_status.png')), 'user-provided character status crop missing')
+assert.ok(fs.existsSync(path.join(res, 'drawable-nodpi/ringmap_character_navigation.png')), 'user-provided character navigation crop missing')
+assert.ok(fs.existsSync(path.join(res, 'drawable-nodpi/ringmap_mark_round.png')), 'round transmission timing icon missing')
+const liveLayout = fs.readFileSync(path.join(res, 'layout/fragment_live_navigation.xml'), 'utf8')
+assert.ok(liveLayout.includes('ivTimingIcon') && liveLayout.includes('@drawable/ringmap_mark_round'), 'timing section must use the supplied round map icon')
+assert.ok(fs.existsSync(path.join(res, 'drawable-nodpi/nav_turn_left.png')), 'colored navigation assets missing')
+console.log('android product UI contract tests passed')

@@ -3,34 +3,33 @@ import { px } from '@zos/utils'
 import { push } from '@zos/router'
 import { localStorage } from '@zos/storage'
 import { applySavedScreenSetting } from '../utils/settings'
+import { actionIcon, actionTitle, createActionIcon, deleteAll } from '../utils/icons'
 
-var W = 480
-var BG = 0x050505
-var CARD = 0x111111
-var CARD_2 = 0x181818
-var LINE = 0x303030
-var TEXT = 0xF7F7F7
-var SUB = 0xD1D1D1
-var MUTED = 0x858585
-var ACCENT = 0xFFB547
-var ACCENT_2 = 0xFFD166
-var KEY_TS = 'rm_nav_ts'
+var TEXT = 0xF6FAF8
+var SUB = 0xB5C2C8
+var MUTED = 0x6F7C83
+var CYAN = 0x2EDCF2
+var PANEL = 0x0A1013
+var PRESS = 0x152126
 
 function text(x, y, w, h, size, color, value, alignH) {
   return createWidget(widget.TEXT, {
     x: px(x), y: px(y), w: px(w), h: px(h), text_size: px(size),
-    color: color === undefined ? TEXT : color,
-    align_h: alignH === undefined ? align.CENTER_H : alignH,
+    color: color, align_h: alignH || align.CENTER_H,
     align_v: align.CENTER_V, text: value || ''
   })
 }
 
-function card(y, h, color) {
-  return createWidget(widget.FILL_RECT, { x: px(42), y: px(y), w: px(396), h: px(h), radius: px(24), color: color || CARD })
+function distanceText(nav) {
+  if (!nav) return ''
+  if (nav.distanceText) return String(nav.distanceText)
+  var meters = Number(nav.distanceMeters || nav.distance || 0)
+  if (!meters) return ''
+  return meters < 1000 ? Math.round(meters) + '米' : (meters / 1000).toFixed(1) + '公里'
 }
 
 Page({
-  state: { timer: null, status: null, preview: null, lastNavTs: '', routeRequested: false },
+  state: { iconWidgets: [], lastAction: '', distance: null, action: null, status: null, detail: null },
 
   onInit() {
     applySavedScreenSetting()
@@ -38,64 +37,86 @@ Page({
 
   build() {
     var self = this
-    createWidget(widget.FILL_RECT, { x: 0, y: 0, w: px(W), h: px(W), color: BG })
-    text(72, 24, 336, 22, 13, SUB, 'RINGMAP / 主页')
-    text(72, 51, 336, 36, 27, TEXT, '骑行导航')
-    text(72, 89, 336, 24, 11, MUTED, '只显示当前这一步，骑行时更容易看清')
+    createWidget(widget.IMG, { x: 0, y: 0, w: px(480), h: px(480), src: 'night-corridor-bg.png' })
+    text(110, 24, 260, 24, 18, TEXT, 'RINGMAP')
+    self.state.status = text(92, 55, 296, 22, 12, CYAN, '正在检查连接')
+    self.state.distance = text(50, 242, 380, 68, 54, TEXT, '')
+    self.state.action = text(66, 310, 348, 34, 23, TEXT, '等待导航')
+    self.state.detail = text(78, 348, 324, 22, 13, SUB, '等待手机导航桥')
 
-    card(125, 110, CARD)
-    createWidget(widget.FILL_RECT, { x: px(84), y: px(149), w: px(6), h: px(48), radius: px(3), color: ACCENT })
-    text(105, 143, 290, 20, 12, MUTED, '当前链路', align.LEFT)
-    self.state.status = text(105, 169, 290, 31, 21, TEXT, '等待连接手机', align.LEFT)
-    self.state.preview = text(105, 204, 290, 18, 11, MUTED, '等待手机开始导航', align.LEFT)
-
-    card(253, 130, CARD_2)
-    text(84, 274, 312, 20, 12, MUTED, '快捷操作', align.LEFT)
     createWidget(widget.BUTTON, {
-      x: px(64), y: px(307), w: px(170), h: px(38), radius: px(19),
-      text_size: px(15), color: TEXT, normal_color: CARD, press_color: LINE,
-      text: '显示导航', click_func: function() { push({ url: 'page/navigation', anim: true }) }
+      x: px(72), y: px(386), w: px(150), h: px(44), radius: px(8),
+      text_size: px(15), color: TEXT, normal_color: PANEL, press_color: PRESS,
+      text: '导航', click_func: function() { push({ url: 'page/navigation', anim: true }) }
     })
     createWidget(widget.BUTTON, {
-      x: px(246), y: px(307), w: px(170), h: px(38), radius: px(19),
-      text_size: px(15), color: TEXT, normal_color: CARD, press_color: LINE,
+      x: px(258), y: px(386), w: px(150), h: px(44), radius: px(8),
+      text_size: px(15), color: TEXT, normal_color: PANEL, press_color: PRESS,
       text: '设置', click_func: function() { push({ url: 'page/settings', anim: true }) }
     })
-    text(76, 414, 328, 20, 11, MUTED, 'AMBER ROUTE · QUICK GLANCE')
 
     var appData = getApp()._options.globalData
-    appData.homePageRefresh = function(nav) { self.renderStatus(nav) }
-    self.refreshStatus()
+    appData.homePageRefresh = function(nav, navState) { self.renderState(nav, navState) }
+    self.refreshCurrentState()
   },
 
-  renderStatus(nav) {
-    var status = localStorage.getItem('rm_status') || 'idle'
-    var raw = nav ? JSON.stringify(nav) : localStorage.getItem('rm_nav')
-    var hasNav = !!raw && status === 'navigating'
-    var value = !hasNav && status === 'disconnected' ? '等待连接手机' : !hasNav ? '等待手机开始导航' : '导航预览'
-    this.state.status.setProperty(prop.MORE, { text: value, color: hasNav ? ACCENT_2 : status === 'connected' ? ACCENT : MUTED })
-    if (hasNav) {
-      try {
-        var current = nav || JSON.parse(raw)
-        var source = String(current.sourceLabel || '').trim()
-        if (!source) source = String(current.sourcePackage || current.packageName || '').toLowerCase().indexOf('baidu') >= 0 ? '百度地图' : '高德地图'
-        this.state.preview.setProperty(prop.MORE, { text: '导航预览 · ' + source, color: ACCENT_2 })
-      } catch (e) { this.state.preview.setProperty(prop.MORE, { text: '导航预览', color: ACCENT_2 }) }
-    } else this.state.preview.setProperty(prop.MORE, { text: status === 'disconnected' ? '手机端未连接' : '等待导航数据', color: MUTED })
-  },
-
-  refreshStatus() {
+  refreshCurrentState() {
+    var appData = getApp()._options.globalData
+    if (appData.navState && appData.navState.status === 'active' && appData.navState.snapshot) {
+      this.renderState(appData.navState.snapshot, appData.navState)
+      return
+    }
     var raw = localStorage.getItem('rm_nav')
-    var status = localStorage.getItem('rm_status') || 'idle'
-    var navTs = localStorage.getItem(KEY_TS) || ''
-    var hasNav = !!raw && status === 'navigating'
-    if (hasNav && navTs) this.state.lastNavTs = navTs
-    this.renderStatus(null)
+    if (raw) {
+      try {
+        this.renderState(JSON.parse(raw), appData.navState)
+        return
+      } catch (e) {}
+    }
+    this.renderState(null, appData.navState)
+  },
+
+  renderIcon(action) {
+    var type = actionIcon(action)
+    if (type === this.state.lastAction) return
+    this.state.lastAction = type
+    deleteAll(this.state.iconWidgets)
+    this.state.iconWidgets.push(createActionIcon(type, 176, 102, 128))
+  },
+
+  renderState(nav, navState) {
+    var state = navState || getApp()._options.globalData.navState || { status: 'idle', bridgeStatus: 'disconnected' }
+    if (nav && state.status === 'active') {
+      var type = actionIcon(nav.action)
+      this.state.status.setProperty(prop.MORE, {
+        text: String(nav.sourceName || nav.sourceLabel || '系统导航') + ' · LIVE', color: CYAN
+      })
+      this.state.distance.setProperty(prop.MORE, { text: distanceText(nav), color: TEXT })
+      this.state.action.setProperty(prop.MORE, { text: actionTitle(type), color: TEXT })
+      this.state.detail.setProperty(prop.MORE, {
+        text: nav.road ? String(nav.road).substring(0, 18) : '会话 #' + String(nav.seq || '—'), color: SUB
+      })
+      this.renderIcon(type)
+      var appData = getApp()._options.globalData
+      if (typeof appData.markApplied === 'function') appData.markApplied(nav)
+      return
+    }
+
+    var stale = state.status === 'stale'
+    var connected = state.bridgeStatus === 'connected'
+    this.state.status.setProperty(prop.MORE, {
+      text: connected ? '手机导航桥在线' : '等待手机导航桥', color: connected ? CYAN : MUTED
+    })
+    this.state.distance.setProperty(prop.MORE, { text: '' })
+    this.state.action.setProperty(prop.MORE, { text: stale ? '等待新指令' : '等待导航', color: TEXT })
+    this.state.detail.setProperty(prop.MORE, {
+      text: stale ? '旧方向已隐藏' : connected ? '开始手机导航即可同步' : '正在自动重连', color: SUB
+    })
+    this.renderIcon('wait')
   },
 
   onDestroy() {
-    if (this.state.timer) clearInterval(this.state.timer)
-    var appData = getApp()._options.globalData
-    appData.homePageRefresh = null
+    deleteAll(this.state.iconWidgets)
+    getApp()._options.globalData.homePageRefresh = null
   }
 })

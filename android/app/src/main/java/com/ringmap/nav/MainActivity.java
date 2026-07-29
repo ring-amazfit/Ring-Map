@@ -1,281 +1,428 @@
 package com.ringmap.nav;
 
 import android.app.NotificationManager;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.Configuration;
+import android.graphics.Color;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
-import android.text.TextUtils;
 import android.view.View;
-import android.widget.Button;
-import android.widget.TextView;
+import android.view.ViewGroup;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
+import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.lifecycle.Lifecycle;
 
-import org.json.JSONObject;
+import com.google.android.material.bottomnavigation.BottomNavigationView;
+import com.google.android.material.shape.ShapeAppearanceModel;
+import com.ringmap.nav.ui.AboutFragment;
+import com.ringmap.nav.ui.DiagnosticsFragment;
+import com.ringmap.nav.ui.LiveNavigationFragment;
+import com.ringmap.nav.ui.SettingsFragment;
+import com.ringmap.nav.ui.StatusFragment;
 
-/** 环间导航主界面：同步状态、链路状态、导航预览和诊断。 */
+/** 多页面导航宿主；业务状态统一来自 NavStateRepository。 */
 public class MainActivity extends AppCompatActivity {
 
+    public static final String GITHUB_URL = "https://github.com/ring-amazfit/Ring-Map";
+    public static final String ICONS8_URL = "https://icons8.com/";
     private static final String NAV_LISTENER_PKG = "com.ringmap.nav";
+    private static final String STATE_ROOT_INDEX = "root_destination_index";
+    private static final String DETAIL_BACK_STACK = "detail";
+    private static final String[] ROOT_TAGS = {
+            "root:status", "root:navigation", "root:diagnostics", "root:settings"
+    };
 
-    private TextView tvHeroState, tvHeroDescription, tvListenerState,
-            tvServiceState, tvWatchState, tvNavArrow, tvNavInstruction,
-            tvNavDistance, tvNavSyncedAt, tvNavLive, tvDebug,
-            tvNextStepTitle, tvNextStepDescription;
-    private View groupNavEmpty, groupNavActive, cardPermission;
-    private Button btnGrantPermission, btnHeroAction, btnNextStep;
-    private final Handler uiHandler = new Handler(Looper.getMainLooper());
-    private boolean diagnosticsExpanded;
+    private final Handler ageHandler = new Handler(Looper.getMainLooper());
+    private final Handler pageHandler = new Handler(Looper.getMainLooper());
+    private final NavStateRepository repository = NavStateRepository.get();
     private long lastRebindAttemptMs;
-    private int rebindAttempts;
-
-    private final Runnable statePoller = new Runnable() {
+    private BottomNavigationView bottomNavigation;
+    private int currentRootIndex;
+    private boolean detailOpening;
+    private final Runnable ageTicker = new Runnable() {
         @Override public void run() {
-            renderState();
-            uiHandler.postDelayed(this, 1500);
+            repository.tick(System.currentTimeMillis());
+            ageHandler.postDelayed(this, 1000L);
         }
     };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+        getWindow().setStatusBarColor(Color.TRANSPARENT);
+        getWindow().setNavigationBarColor(Color.TRANSPARENT);
         setContentView(R.layout.activity_main);
-        initViews();
-        renderState();
+        setupInsets();
+        setupNavigation(savedInstanceState);
+        refreshInfrastructure();
     }
 
-    private void initViews() {
-        tvHeroState = findViewById(R.id.tvHeroState);
-        tvHeroDescription = findViewById(R.id.tvHeroDescription);
-        tvListenerState = findViewById(R.id.tvListenerState);
-        tvServiceState = findViewById(R.id.tvServiceState);
-        tvWatchState = findViewById(R.id.tvWatchState);
-        tvNavArrow = findViewById(R.id.tvNavArrow);
-        tvNavInstruction = findViewById(R.id.tvNavInstruction);
-        tvNavDistance = findViewById(R.id.tvNavDistance);
-        tvNavSyncedAt = findViewById(R.id.tvNavSyncedAt);
-        tvNavLive = findViewById(R.id.tvNavLive);
-        tvDebug = findViewById(R.id.tvDebug);
-        tvNextStepTitle = findViewById(R.id.tvNextStepTitle);
-        tvNextStepDescription = findViewById(R.id.tvNextStepDescription);
-        groupNavEmpty = findViewById(R.id.groupNavEmpty);
-        groupNavActive = findViewById(R.id.groupNavActive);
-        cardPermission = findViewById(R.id.cardPermission);
-        btnGrantPermission = findViewById(R.id.btnGrantPermission);
-        btnHeroAction = findViewById(R.id.btnHeroAction);
-        btnNextStep = findViewById(R.id.btnNextStep);
-
-        btnGrantPermission.setOnClickListener(v -> openNotificationAccessSettings());
-        btnHeroAction.setOnClickListener(v -> openNotificationAccessSettings());
-        btnNextStep.setOnClickListener(v -> {
-            if (!isNotificationAccessGranted()) openNotificationAccessSettings();
-            else Toast.makeText(this, "请在手表打开“环间导航”，再在手机导航应用中开始导航", Toast.LENGTH_LONG).show();
-        });
-        findViewById(R.id.btnRefresh).setOnClickListener(v -> renderState());
-        findViewById(R.id.btnToggleDiagnostics).setOnClickListener(v -> {
-            diagnosticsExpanded = !diagnosticsExpanded;
-            tvDebug.setVisibility(diagnosticsExpanded ? View.VISIBLE : View.GONE);
-            ((Button) findViewById(R.id.btnToggleDiagnostics)).setText(diagnosticsExpanded ? "收起" : "展开");
+    private void setupInsets() {
+        View root = findViewById(R.id.rootCoordinator);
+        bottomNavigation = findViewById(R.id.bottomNavigation);
+        int baseNavigationHeight = dp(80);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (view, insets) -> {
+            androidx.core.graphics.Insets system = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            view.setPadding(0, system.top, 0, 0);
+            ViewGroup.LayoutParams params = bottomNavigation.getLayoutParams();
+            params.height = baseNavigationHeight + system.bottom;
+            bottomNavigation.setLayoutParams(params);
+            bottomNavigation.setPadding(0, 0, 0, system.bottom);
+            boolean dark = (getResources().getConfiguration().uiMode
+                    & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+            WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(getWindow(), view);
+            controller.setAppearanceLightStatusBars(!dark);
+            controller.setAppearanceLightNavigationBars(!dark);
+            return insets;
         });
     }
 
-    private boolean isNotificationAccessGranted() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
-            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (manager != null && manager.isNotificationListenerAccessGranted(
-                    new ComponentName(this, NavNotificationListener.class))) {
-                return true;
+    private void setupNavigation(Bundle savedInstanceState) {
+        bottomNavigation.setItemActiveIndicatorEnabled(true);
+        bottomNavigation.setItemActiveIndicatorWidth(dp(64));
+        bottomNavigation.setItemActiveIndicatorHeight(dp(32));
+        bottomNavigation.setItemActiveIndicatorMarginHorizontal(dp(4));
+        bottomNavigation.setItemActiveIndicatorColor(ContextCompat.getColorStateList(this,
+                R.color.md3_secondary_container));
+        bottomNavigation.setItemActiveIndicatorShapeAppearance(
+                ShapeAppearanceModel.builder().setAllCornerSizes(dp(16)).build());
+        bottomNavigation.setItemIconSize(dp(24));
+        bottomNavigation.setItemIconTintList(ContextCompat.getColorStateList(this,
+                R.color.bottom_nav_icon_colors));
+        bottomNavigation.setItemTextColor(ContextCompat.getColorStateList(this,
+                R.color.bottom_nav_text_colors));
+        bottomNavigation.setItemTextAppearanceActiveBoldEnabled(true);
+        bottomNavigation.setElevation(0f);
+
+        currentRootIndex = savedInstanceState == null ? 0
+                : savedInstanceState.getInt(STATE_ROOT_INDEX, 0);
+        currentRootIndex = Math.max(0, Math.min(ROOT_TAGS.length - 1, currentRootIndex));
+        restoreRootFragments();
+        bottomNavigation.getMenu().findItem(destinationId(currentRootIndex)).setChecked(true);
+        bottomNavigation.setOnItemSelectedListener(item ->
+                showRootDestination(destinationIndex(item.getItemId())));
+
+        FragmentManager fragments = getSupportFragmentManager();
+        fragments.addOnBackStackChangedListener(() -> {
+            detailOpening = false;
+            setBottomNavigationVisible(fragments.getBackStackEntryCount() == 0);
+        });
+        if (fragments.getBackStackEntryCount() > 0) {
+            bottomNavigation.setVisibility(View.GONE);
+        } else {
+            pageHandler.postDelayed(() -> preloadRootFragment(0), 120L);
+        }
+    }
+
+    private void restoreRootFragments() {
+        FragmentManager fragments = getSupportFragmentManager();
+        Fragment current = fragments.findFragmentByTag(ROOT_TAGS[currentRootIndex]);
+        if (current == null) {
+            current = createRootFragment(currentRootIndex);
+            fragments.beginTransaction()
+                    .setReorderingAllowed(true)
+                    .add(R.id.rootPageHost, current, ROOT_TAGS[currentRootIndex])
+                    .setMaxLifecycle(current, Lifecycle.State.RESUMED)
+                    .commitNow();
+        }
+        if (fragments.getBackStackEntryCount() > 0) return;
+
+        androidx.fragment.app.FragmentTransaction transaction = fragments.beginTransaction()
+                .setReorderingAllowed(true);
+        for (int index = 0; index < ROOT_TAGS.length; index++) {
+            Fragment root = fragments.findFragmentByTag(ROOT_TAGS[index]);
+            if (root == null) continue;
+            if (index == currentRootIndex) {
+                transaction.show(root).setMaxLifecycle(root, Lifecycle.State.RESUMED);
+            } else {
+                transaction.hide(root).setMaxLifecycle(root, Lifecycle.State.STARTED);
             }
         }
-        String enabled = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
-        return NotificationAccess.isEnabled(enabled, NAV_LISTENER_PKG, "com.ringmap.nav.NavNotificationListener");
+        transaction.commitNow();
     }
 
-    /**
-     * 设置中显示已授权不代表系统已经绑定 Service。主动请求重绑，
-     * 同时将真实结果留给 onListenerConnected/onListenerDisconnected 更新。
-     */
-    private void requestListenerRebindIfNeeded(boolean permissionGranted) {
-        if (!permissionGranted || LastNavCache.isListenerConnected()) return;
+    private boolean showRootDestination(int index) {
+        FragmentManager fragments = getSupportFragmentManager();
+        if (index < 0 || index >= ROOT_TAGS.length || fragments.isStateSaved()
+                || fragments.getBackStackEntryCount() > 0) return false;
+        Fragment target = fragments.findFragmentByTag(ROOT_TAGS[index]);
+        Fragment current = fragments.findFragmentByTag(ROOT_TAGS[currentRootIndex]);
+        if (index == currentRootIndex && target != null && !target.isHidden()) return true;
+
+        androidx.fragment.app.FragmentTransaction transaction = fragments.beginTransaction()
+                .setReorderingAllowed(true);
+        if (current != null) {
+            transaction.hide(current).setMaxLifecycle(current, Lifecycle.State.STARTED);
+        }
+        if (target == null) {
+            target = createRootFragment(index);
+            transaction.add(R.id.rootPageHost, target, ROOT_TAGS[index]);
+        } else {
+            transaction.show(target);
+        }
+        transaction.setMaxLifecycle(target, Lifecycle.State.RESUMED).commitNow();
+        currentRootIndex = index;
+        return true;
+    }
+
+    private void preloadRootFragment(int index) {
+        if (index >= ROOT_TAGS.length) return;
+        FragmentManager fragments = getSupportFragmentManager();
+        if (!isFinishing() && !fragments.isStateSaved()
+                && fragments.getBackStackEntryCount() == 0
+                && fragments.findFragmentByTag(ROOT_TAGS[index]) == null) {
+            Fragment root = createRootFragment(index);
+            fragments.beginTransaction()
+                    .setReorderingAllowed(true)
+                    .add(R.id.rootPageHost, root, ROOT_TAGS[index])
+                    .hide(root)
+                    .setMaxLifecycle(root, Lifecycle.State.STARTED)
+                    .commitNow();
+        }
+        pageHandler.postDelayed(() -> preloadRootFragment(index + 1), 120L);
+    }
+
+    private Fragment createRootFragment(int index) {
+        if (index == 1) return new LiveNavigationFragment();
+        if (index == 2) return new DiagnosticsFragment();
+        if (index == 3) return new SettingsFragment();
+        return new StatusFragment();
+    }
+
+    private int destinationIndex(int destinationId) {
+        if (destinationId == R.id.liveNavigationFragment) return 1;
+        if (destinationId == R.id.diagnosticsFragment) return 2;
+        if (destinationId == R.id.settingsFragment) return 3;
+        return 0;
+    }
+
+    private int destinationId(int index) {
+        if (index == 1) return R.id.liveNavigationFragment;
+        if (index == 2) return R.id.diagnosticsFragment;
+        if (index == 3) return R.id.settingsFragment;
+        return R.id.statusFragment;
+    }
+
+    private void setBottomNavigationVisible(boolean visible) {
+        bottomNavigation.animate().cancel();
+        if (visible) {
+            boolean wasGone = bottomNavigation.getVisibility() != View.VISIBLE;
+            bottomNavigation.setVisibility(View.VISIBLE);
+            if (wasGone) {
+                bottomNavigation.setAlpha(0f);
+                bottomNavigation.setTranslationY(dp(16));
+            }
+            bottomNavigation.animate().alpha(1f).translationY(0f).setDuration(180L).start();
+        } else {
+            if (bottomNavigation.getVisibility() != View.VISIBLE) return;
+            bottomNavigation.animate().alpha(0f).translationY(dp(16)).setDuration(140L)
+                    .withEndAction(() -> bottomNavigation.setVisibility(View.GONE)).start();
+        }
+    }
+
+    public void refreshInfrastructure() {
+        boolean permission = isNotificationAccessGranted();
+        repository.setNotificationAccess(permission);
+        repository.setListenerState(permission && LastNavCache.isListenerConnected(),
+                permission ? LastNavCache.getListenerState() : "未授权");
+        repository.setServiceState(NavigationService.isRunning(), NavigationService.getState(),
+                NavigationService.getError());
+        repository.setClientCount(NavigationService.getClientCount());
+        if (permission) {
+            requestListenerRebind();
+            startNavigationService();
+        }
+    }
+
+    public void performReadinessAction(NavUiState state) {
+        if (state == null) return;
+        switch (state.readiness()) {
+            case NEEDS_PERMISSION:
+                openNotificationAccessSettings();
+                break;
+            case CONNECTING_LISTENER:
+                requestListenerRebind();
+                showToast("已请求系统重新连接通知监听");
+                break;
+            case SERVICE_STOPPED:
+            case SERVICE_ERROR:
+                startNavigationService();
+                showToast("正在启动同步服务");
+                break;
+            default:
+                refreshInfrastructure();
+                showToast("链路状态已刷新");
+                break;
+        }
+    }
+
+    public boolean isNotificationAccessGranted() {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null && manager.isNotificationListenerAccessGranted(
+                    new ComponentName(this, NavNotificationListener.class))) return true;
+        }
+        String enabled = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
+        return NotificationAccess.isEnabled(enabled, NAV_LISTENER_PKG,
+                "com.ringmap.nav.NavNotificationListener");
+    }
+
+    public void requestListenerRebind() {
+        if (!isNotificationAccessGranted() || LastNavCache.isListenerConnected()) return;
         long now = System.currentTimeMillis();
         if (now - lastRebindAttemptMs < 3000L) return;
         lastRebindAttemptMs = now;
-        rebindAttempts = Math.min(rebindAttempts + 1, 1000);
         try {
-            LastNavCache.setDebug("[正在请求系统连接通知监听]");
+            repository.record("监听", "已请求系统重新绑定");
             NotificationListenerService.requestRebind(
                     new ComponentName(this, NavNotificationListener.class));
-        } catch (Exception e) {
-            LastNavCache.setDebug("[请求监听重连失败] " + e.getClass().getSimpleName());
+        } catch (Exception error) {
+            repository.record("监听", "系统重绑请求失败");
         }
     }
 
-    private void renderState() {
-        boolean permission = isNotificationAccessGranted();
-        if (permission) {
-            cardPermission.setVisibility(View.GONE);
-            requestListenerRebindIfNeeded(true);
-            if (!NavigationService.isRunning()) startNavigationService();
-        } else {
-            cardPermission.setVisibility(View.VISIBLE);
-        }
-
-        boolean listener = permission && LastNavCache.isListenerConnected();
-        boolean service = NavigationService.isRunning();
-        int clients = NavigationService.getClientCount();
-        boolean watchConnected = clients > 0;
-        long watchAckAge = LastNavCache.getLastWatchAckTs() <= 0
-                ? Long.MAX_VALUE
-                : System.currentTimeMillis() - LastNavCache.getLastWatchAckTs();
-        JSONObject nav = LastNavCache.get();
-
-        tvListenerState.setText(!permission ? "未授权" : LastNavCache.getListenerState());
-        tvServiceState.setText(service ? "运行中 · 端口 8886" : NavigationService.getState());
-        tvWatchState.setText(watchConnected
-                ? (watchAckAge < 30000 ? "已连接并确认 · " + clients + " 个客户端" : "手表已连接，等待手表确认")
-                : "未检测到手表端连接");
-
-        if (!permission) {
-            setHero("需要允许通知使用权", "允许后才能读取系统导航通知。", "前往授权", true);
-            setNext("先完成通知授权", "环间导航只读取导航通知，用于把转向和距离同步到手表。", "前往授权", true);
-        } else if (!listener) {
-            setHero("正在连接通知监听", "通知使用权已确认；正在请求系统重新绑定，通常会在几秒内完成。", "检查授权", true);
-            setNext("如果持续超过 10 秒", "到系统设置关闭后重新开启“环间导航”的通知使用权，再回到这里点刷新。", "打开系统设置", true);
-        } else if (!service) {
-            setHero("同步服务尚未启动", "手机端服务没有正常启动，手表端暂时无法连接。", "重新检查", false);
-            setNext("检查手机后台限制", "请允许环间导航自启动、后台运行和电池不限制，返回桌面后同步仍会继续。", "打开应用设置", true);
-            btnNextStep.setOnClickListener(v -> openBackgroundSettings());
-        } else if (!watchConnected) {
-            setHero("等待手表端连接", "手机同步服务已运行；返回桌面不会停止监听。请在 Zepp App 保持手表连接。", "", false);
-            setNext("打开手表端应用", "手机服务已就绪；手表端连接后，这里会显示已检测到连接。", "查看连接说明", false);
-        } else if (watchAckAge >= 30000) {
-            setHero("等待手表确认", "手机端已连接，但手表还没有回传确认。请打开手表端 RingMap。", "", false);
-            setNext("打开手表端应用", "只有收到手表确认后，导航数据才会被标记为已送达。", "查看连接说明", false);
-        } else if (nav == null) {
-            setHero("已准备就绪", "通知监听和手表链路都正常，开始导航即可同步。", "", false);
-            setNext("开始导航即可同步", "在手机导航应用中开始导航，下一条转向会显示在这里。", "", false);
-        } else {
-            setHero("正在同步导航", "最新转向已发送到手表。", "", false);
-            setNext("导航同步中", "保持手机导航和手表端应用可用，接近转弯时手表会震动。", "", false);
-        }
-        updateNavPreview(nav);
-        updateDiagnostics();
-    }
-
-    private void setHero(String title, String description, String action, boolean showAction) {
-        tvHeroState.setText(title);
-        tvHeroDescription.setText(description);
-        btnHeroAction.setText(action);
-        btnHeroAction.setVisibility(showAction ? View.VISIBLE : View.GONE);
-    }
-
-    private void setNext(String title, String description, String action, boolean showAction) {
-        tvNextStepTitle.setText(title);
-        tvNextStepDescription.setText(description);
-        btnNextStep.setText(action);
-        btnNextStep.setVisibility(showAction ? View.VISIBLE : View.GONE);
-    }
-
-    private void updateNavPreview(JSONObject nav) {
-        if (nav == null) {
-            groupNavEmpty.setVisibility(View.VISIBLE);
-            groupNavActive.setVisibility(View.GONE);
-            tvNavLive.setText("等待中");
-            return;
-        }
-        groupNavEmpty.setVisibility(View.GONE);
-        groupNavActive.setVisibility(View.VISIBLE);
-        tvNavLive.setText("实时");
-        String action = nav.optString("action", "straight");
-        tvNavArrow.setText(actionToArrow(action));
-        tvNavInstruction.setText(nav.optString("instruction", action));
-        String distance = nav.optString("distanceText", "");
-        tvNavDistance.setText(distance.isEmpty() ? "—" : distance);
-        long ts = nav.optLong("ts", LastNavCache.getLastParseSuccessTs());
-        tvNavSyncedAt.setText("已发送至手表 · " + ageText(ts));
-    }
-
-
-    private void updateDiagnostics() {
-        String debug = LastNavCache.getDebug();
-        if (TextUtils.isEmpty(debug)) {
-            tvDebug.setText("暂无监听事件");
-            return;
-        }
-        tvDebug.setText("授权：" + (isNotificationAccessGranted() ? "已授予" : "未授予")
-                + "\n监听：" + LastNavCache.getListenerState()
-                + "\n手表端：" + (NavigationService.getClientCount() > 0 ? "已连接" : "未连接")
-                + "\n最近事件：" + ageText(LastNavCache.getDebugTs())
-                + "\n原始信息：" + debug);
-    }
-
-    private String ageText(long timestamp) {
-        if (timestamp <= 0) return "等待中";
-        long seconds = Math.max(0, (System.currentTimeMillis() - timestamp) / 1000);
-        if (seconds < 5) return "刚刚";
-        if (seconds < 60) return seconds + " 秒前";
-        return (seconds / 60) + " 分钟前";
-    }
-
-    private void startNavigationService() {
+    public void startNavigationService() {
+        if (NavigationService.isRunning()) return;
         try {
             ContextCompat.startForegroundService(this, new Intent(this, NavigationService.class));
-        } catch (Exception ignored) {
-            // renderState 会显示真实的服务状态，避免用 Toast 掩盖后台启动限制。
+        } catch (Exception error) {
+            repository.record("服务", "前台同步服务启动失败");
         }
     }
 
-    private void openBackgroundSettings() {
-        try {
-            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-            intent.setData(android.net.Uri.parse("package:" + getPackageName()));
-            startActivity(intent);
-        } catch (Exception e) {
-            Toast.makeText(this, "请在系统设置允许环间导航自启动、后台运行和电池不限制", Toast.LENGTH_LONG).show();
-        }
-    }
-
-    private void openNotificationAccessSettings() {
+    public void openNotificationAccessSettings() {
         Intent intent = new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS");
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             startActivity(intent);
-        } catch (Exception e) {
+        } catch (Exception error) {
             Intent fallback = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
             fallback.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
             startActivity(fallback);
         }
     }
 
-    // RingMap 不获取定位；导航位置由手机导航通知写入后再由监听服务读取。
-
-    private String actionToArrow(String action) {
-        if (action == null) return "↑";
-        switch (action) {
-            case "left": case "slight_left": return "↖";
-            case "right": case "slight_right": return "↗";
-            case "uturn": return "↓";
-            case "arrive": return "✓";
-            default: return "↑";
+    public void openBackgroundSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception error) {
+            showToast("请在系统设置允许自启动、后台运行和电池不限制");
         }
     }
 
-    @Override protected void onResume() {
-        super.onResume();
-        uiHandler.removeCallbacks(statePoller);
-        renderState();
-        uiHandler.post(statePoller);
+    public void copyDiagnostics() {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard == null) return;
+        clipboard.setPrimaryClip(ClipData.newPlainText("RingMap diagnostics",
+                repository.diagnosticsText()));
+        showToast("脱敏诊断已复制");
     }
 
-    @Override protected void onPause() {
+    public void openGithub() {
+        openUrl(GITHUB_URL);
+    }
+
+    public void openIcons8() {
+        openUrl(ICONS8_URL);
+    }
+
+    private void openUrl(String value) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(value)));
+        } catch (Exception error) {
+            showToast("没有可打开链接的应用");
+        }
+    }
+
+    public void showToast(String value) {
+        Toast.makeText(this, value, Toast.LENGTH_SHORT).show();
+    }
+
+    public void openRootDestination(int destinationId) {
+        bottomNavigation.setSelectedItemId(destinationId);
+    }
+
+    public void openAbout() {
+        FragmentManager fragments = getSupportFragmentManager();
+        if (detailOpening || fragments.isStateSaved()
+                || fragments.getBackStackEntryCount() > 0) return;
+        Fragment current = fragments.findFragmentByTag(ROOT_TAGS[currentRootIndex]);
+        if (current == null) return;
+        detailOpening = true;
+        try {
+            AboutFragment about = new AboutFragment();
+            fragments.beginTransaction()
+                    .setReorderingAllowed(true)
+                    .hide(current)
+                    .setMaxLifecycle(current, Lifecycle.State.STARTED)
+                    .add(R.id.rootPageHost, about, "detail:about")
+                    .addToBackStack(DETAIL_BACK_STACK)
+                    .commit();
+            setBottomNavigationVisible(false);
+        } catch (RuntimeException error) {
+            detailOpening = false;
+            throw error;
+        }
+    }
+
+    public void closeDetail() {
+        getSupportFragmentManager().popBackStack();
+    }
+
+    @Override
+    public boolean onSupportNavigateUp() {
+        if (getSupportFragmentManager().getBackStackEntryCount() > 0) {
+            closeDetail();
+            return true;
+        }
+        return super.onSupportNavigateUp();
+    }
+
+    @Override
+    protected void onSaveInstanceState(@androidx.annotation.NonNull Bundle outState) {
+        outState.putInt(STATE_ROOT_INDEX, currentRootIndex);
+        super.onSaveInstanceState(outState);
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        refreshInfrastructure();
+        ageHandler.removeCallbacks(ageTicker);
+        ageHandler.post(ageTicker);
+    }
+
+    @Override
+    protected void onPause() {
+        ageHandler.removeCallbacks(ageTicker);
         super.onPause();
-        uiHandler.removeCallbacks(statePoller);
+    }
+
+    @Override
+    protected void onDestroy() {
+        pageHandler.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
     }
 }

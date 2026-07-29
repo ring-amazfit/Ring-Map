@@ -4,6 +4,7 @@ import { setPageBrightTime, setWakeUpRelaunch } from '@zos/display'
 var KEY_KEEP_SCREEN = 'rm_keep_screen'
 var KEY_AUTO_OPEN = 'rm_auto_open'
 var KEY_VIBRATE = 'rm_vibrate'
+var KEY_HAPTIC_MODE = 'rm_haptic_mode'
 var KEY_BIG_TEXT = 'rm_big_text'
 var KEY_SHOW_SOURCE = 'rm_show_source'
 var KEY_STAY_HOME = 'rm_stay_home'
@@ -25,7 +26,6 @@ export function applyKeepScreen(enabled) {
   } catch (e) {
     console.log('RingMap: set bright time failed', e)
   }
-  // 熄屏/唤醒后保持当前应用和当前页面，不因息屏而退出导航。
   try {
     setWakeUpRelaunch({ relaunch: true })
   } catch (e) {
@@ -39,8 +39,20 @@ export function applySavedScreenSetting() {
 
 export function isAutoOpenEnabled() { return localStorage.getItem(KEY_AUTO_OPEN) !== '0' }
 export function setAutoOpenEnabled(enabled) { localStorage.setItem(KEY_AUTO_OPEN, enabled ? '1' : '0') }
-export function isVibrateEnabled() { return localStorage.getItem(KEY_VIBRATE) !== '0' }
-export function setVibrateEnabled(enabled) { localStorage.setItem(KEY_VIBRATE, enabled ? '1' : '0') }
+
+export function getHapticMode() {
+  var mode = localStorage.getItem(KEY_HAPTIC_MODE)
+  if (mode === 'off' || mode === 'turn' || mode === 'proximity') return mode
+  return localStorage.getItem(KEY_VIBRATE) === '0' ? 'off' : 'turn'
+}
+export function setHapticMode(mode) {
+  var value = mode === 'off' || mode === 'proximity' ? mode : 'turn'
+  localStorage.setItem(KEY_HAPTIC_MODE, value)
+  localStorage.setItem(KEY_VIBRATE, value === 'off' ? '0' : '1')
+}
+export function isVibrateEnabled() { return getHapticMode() !== 'off' }
+export function setVibrateEnabled(enabled) { setHapticMode(enabled ? 'turn' : 'off') }
+
 export function isBigTextEnabled() { return localStorage.getItem(KEY_BIG_TEXT) === '1' }
 export function setBigTextEnabled(enabled) { localStorage.setItem(KEY_BIG_TEXT, enabled ? '1' : '0') }
 export function isShowSourceEnabled() { return localStorage.getItem(KEY_SHOW_SOURCE) !== '0' }
@@ -51,5 +63,6 @@ export function setStayHomeEnabled(enabled) { localStorage.setItem(KEY_STAY_HOME
 export function clearNavigationCache() {
   localStorage.removeItem('rm_nav')
   localStorage.removeItem('rm_nav_ts')
+  localStorage.removeItem('rm_nav_received')
   localStorage.setItem('rm_status', 'idle')
 }

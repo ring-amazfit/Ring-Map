@@ -58,6 +58,10 @@
     <style name="TextAppearance.RingMap.Label" parent="TextAppearance.Material3.LabelMedium">
         <item name="android:textColor">@color/md3_on_surface_variant</item>
     </style>
+    <style name="TextAppearance.RingMap.NavigationBar" parent="TextAppearance.Material3.LabelSmall">
+        <item name="android:textSize">11sp</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
 
     <!-- 形状令牌（MD3 圆角规范） -->
     <style name="ShapeAppearance.RingMap.Icon" parent="">
@@ -66,7 +70,7 @@
     </style>
     <style name="ShapeAppearance.RingMap.Card" parent="">
         <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">20dp</item>
+        <item name="cornerSize">8dp</item>
     </style>
     <style name="ShapeAppearance.RingMap.Pill" parent="">
         <item name="cornerFamily">rounded</item>

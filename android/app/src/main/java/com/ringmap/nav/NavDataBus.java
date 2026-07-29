@@ -4,46 +4,36 @@ import android.util.Log;
 
 import org.json.JSONObject;
 
-/**
- * 导航数据总线 — 解耦 NotificationListener 与 WebSocket Server
- *
- * NotificationListener 解析地图导航通知 → 调用 NavDataBus.publish(navData)
- * NavWebSocketServer 订阅总线，收到数据后 broadcast 到所有手表连接
- *
- * 这样监听器和服务可以独立启停，互不依赖。
- */
-public class NavDataBus {
+/** 进程内事件总线：监听器发布权威协议快照，前台服务负责广播。 */
+public final class NavDataBus {
 
     private static final String TAG = "RingDataBus";
     private static volatile Listener sListener;
 
+    private NavDataBus() {}
+
     public interface Listener {
-        /** 数据更新时调用，data 是已序列化的 JSON 字符串 */
         void onNavData(String json);
-        /** 导航明确结束时调用，通知中继器清空旧导航 */
-        void onNavEnd();
+        void onNavEnd(String json);
     }
 
     public static void setListener(Listener listener) {
         sListener = listener;
     }
 
-    /**
-     * 发布导航数据
-     * @param navData 已构造好的导航数据 JSON
-     */
     public static void publish(JSONObject navData) {
         if (navData == null) return;
-        Listener l = sListener;
-        if (l == null) {
-            Log.d(TAG, "No listener, drop: " + navData);
+        Listener listener = sListener;
+        if (listener == null) {
+            Log.d(TAG, "No service listener; snapshot remains available in LastNavCache");
             return;
         }
-        l.onNavData(navData.toString());
+        listener.onNavData(navData.toString());
     }
 
-    public static void clear() {
-        Listener l = sListener;
-        if (l != null) l.onNavEnd();
+    public static void clear(JSONObject endData) {
+        if (endData == null) return;
+        Listener listener = sListener;
+        if (listener != null) listener.onNavEnd(endData.toString());
     }
 }

@@ -5,12 +5,12 @@
     "appName": "RingMap",
     "appType": "app",
     "version": {
-      "code": 8,
-      "name": "2.4.1"
+      "code": 9,
+      "name": "3.0.0"
     },
     "icon": "icon.png",
     "vender": "Anonymous",
-    "description": "华米手表骑行导航（手机端导航+手表显示）"
+    "description": "系统导航通知实时同步到 ZeppOS 手表"
   },
   "runtime": {
     "apiVersion": {

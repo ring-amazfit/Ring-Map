@@ -79,11 +79,12 @@ public class NavigationService extends Service implements NavDataBus.Listener {
         sInstance = this;
         sState = "启动中";
         sError = "";
+        NavStateRepository.get().setServiceState(false, sState, sError);
         Log.d(TAG, "NavigationService onCreate");
 
         startForeground(NOTIFICATION_ID, createNotification("后台同步运行中 · 等待导航数据"));
         foregroundStarted = true;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null && !manager.isNotificationListenerAccessGranted(
                     new ComponentName(this, NavNotificationListener.class))) {
@@ -96,6 +97,7 @@ public class NavigationService extends Service implements NavDataBus.Listener {
             mWsServer.start();
             Log.d(TAG, "WebSocket server started on port " + WS_PORT);
             sState = "运行中";
+            NavStateRepository.get().setServiceState(true, sState, "");
             NavDataBus.setListener(this);
             healthHandler.removeCallbacks(listenerHealthCheck);
             healthHandler.post(listenerHealthCheck);
@@ -108,6 +110,7 @@ public class NavigationService extends Service implements NavDataBus.Listener {
         } catch (Exception e) {
             sState = "异常";
             sError = e.getMessage() == null ? "WebSocket 服务启动失败" : e.getMessage();
+            NavStateRepository.get().setServiceState(false, sState, sError);
             Log.e(TAG, "NavigationService start failed", e);
         }
     }
@@ -127,18 +130,19 @@ public class NavigationService extends Service implements NavDataBus.Listener {
     public void onNavData(String json) {
         if (mWsServer != null) {
             mWsServer.broadcast(json);
-            Log.d(TAG, "Navigation data broadcast to " + mWsServer.getClientCount() + " client(s): " + json);
+            Log.d(TAG, "Navigation snapshot broadcast to " + mWsServer.getClientCount()
+                    + " client(s), bytes=" + (json == null ? 0 : json.length()));
         } else {
             Log.w(TAG, "Navigation data received before WebSocket server was ready");
         }
     }
 
     @Override
-    public void onNavEnd() {
-        LastNavCache.clear();
+    public void onNavEnd(String json) {
         if (mWsServer != null) {
-            mWsServer.broadcast("navend");
-            Log.i(TAG, "Navigation end broadcast to " + mWsServer.getClientCount() + " client(s)");
+            mWsServer.broadcast(json);
+            Log.i(TAG, "Navigation end broadcast to " + mWsServer.getClientCount()
+                    + " client(s), bytes=" + (json == null ? 0 : json.length()));
         }
     }
 
@@ -157,6 +161,7 @@ public class NavigationService extends Service implements NavDataBus.Listener {
     @Override
     public void onTimeout(int startId, int fgsType) {
         Log.w(TAG, "Foreground service timeout, startId=" + startId + ", type=" + fgsType);
+        NavStateRepository.get().record("服务", "系统触发前台服务超时");
         stopSelf(startId);
     }
 
@@ -188,6 +193,8 @@ public class NavigationService extends Service implements NavDataBus.Listener {
         NavDataBus.setListener(null);
         sState = "未运行";
         sInstance = null;
+        NavStateRepository.get().setServiceState(false, sState, "");
+        NavStateRepository.get().setClientCount(0);
 
         if (mWsServer != null) {
             try {

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="62dp" android:orientation="horizontal" android:paddingTop="10dp" android:paddingBottom="10dp">
+    <TextView android:id="@+id/tvEventTime" android:layout_width="64dp" android:layout_height="wrap_content" android:text="00:00:00" android:textAppearance="@style/TextAppearance.Material3.LabelSmall" android:textColor="@color/md3_on_surface_variant" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+        <TextView android:id="@+id/tvEventCategory" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="桥接" android:textAppearance="@style/TextAppearance.Material3.LabelMedium" android:textColor="@color/md3_primary" android:textStyle="bold" />
+        <TextView android:id="@+id/tvEventMessage" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:maxLines="2" android:text="事件内容" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="@color/md3_on_surface" />
+    </LinearLayout>
+</LinearLayout>

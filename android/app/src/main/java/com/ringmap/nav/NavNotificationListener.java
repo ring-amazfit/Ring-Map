@@ -14,12 +14,16 @@ import androidx.core.app.NotificationCompat;
 
 import org.json.JSONObject;
 
-/** 读取地图导航常驻通知并同步到手表。 */
+/** 读取高德/百度系统导航通知，并发布权威协议 v2 快照。 */
 public class NavNotificationListener extends NotificationListenerService {
 
-// Core maps are supported through notification text; keep this list exact to avoid intercepting unrelated apps.
     private static final String TAG = "NavListener";
-    private static Handler createRebindHandler() {
+    private static final long END_VERIFY_DELAY_MS = 1200L;
+    private static final long ARRIVAL_END_VERIFY_DELAY_MS = 3500L;
+    private static final long[] REBIND_DELAYS_MS = {3000L, 10000L, 30000L};
+    private static final NavSessionController SESSION = new NavSessionController();
+
+    private static Handler createHandler() {
         try {
             Looper current = Looper.myLooper();
             if (current != null) return new Handler(current);
@@ -27,24 +31,24 @@ public class NavNotificationListener extends NotificationListenerService {
         return null;
     }
 
-    private static final Handler REBIND_HANDLER = createRebindHandler();
-    private static final Handler END_HANDLER = createRebindHandler();
-    private static final long END_VERIFY_DELAY_MS = 1200L;
-    private static final long[] REBIND_DELAYS_MS = {3000L, 10000L, 30000L};
+    private static final Handler REBIND_HANDLER = createHandler();
+    private static final Handler END_HANDLER = createHandler();
     private static int rebindAttempt;
-    private static String lastNavigationKey;
-    private static String lastNavigationPackage;
+
     private static final Runnable REBIND_TASK = new Runnable() {
         @Override public void run() {
             try {
-                requestRebind(new ComponentName(NavNotificationListener.class.getPackage().getName(), NavNotificationListener.class.getName()));
+                requestRebind(new ComponentName(NavNotificationListener.class.getPackage().getName(),
+                        NavNotificationListener.class.getName()));
                 Log.i(TAG, "Requested notification listener rebind, attempt=" + rebindAttempt);
             } catch (Exception e) {
                 Log.w(TAG, "Notification listener rebind failed", e);
             }
             if (rebindAttempt < REBIND_DELAYS_MS.length - 1) {
                 rebindAttempt++;
-                if (REBIND_HANDLER != null) REBIND_HANDLER.postDelayed(this, REBIND_DELAYS_MS[rebindAttempt]);
+                if (REBIND_HANDLER != null) {
+                    REBIND_HANDLER.postDelayed(this, REBIND_DELAYS_MS[rebindAttempt]);
+                }
             }
         }
     };
@@ -62,7 +66,6 @@ public class NavNotificationListener extends NotificationListenerService {
         return false;
     }
 
-
     @Override
     public void onListenerConnected() {
         super.onListenerConnected();
@@ -70,14 +73,11 @@ public class NavNotificationListener extends NotificationListenerService {
         LastNavCache.setListenerConnected(true, "已连接");
         LastNavCache.setDebug("[监听已连接] 正在扫描地图导航通知");
         if (REBIND_HANDLER != null) REBIND_HANDLER.removeCallbacks(REBIND_TASK);
-        LastNavCache.setDebug("[监听已连接] 正在扫描地图导航通知");
 
-        // 地图导航通常是常驻通知。仅等 onNotificationPosted 会错过它，
-        // 所以授权/服务重连后主动读取当前仍在通知栏中的通知。
         try {
             StatusBarNotification[] active = getActiveNotifications();
             if (active != null) {
-                for (StatusBarNotification sbn : active) handleNotification(sbn);
+                for (StatusBarNotification item : active) handleNotification(item);
             }
         } catch (SecurityException e) {
             Log.w(TAG, "Cannot scan active notifications", e);
@@ -112,25 +112,32 @@ public class NavNotificationListener extends NotificationListenerService {
     @Override
     public void onNotificationRemoved(StatusBarNotification sbn) {
         if (sbn == null || !isSupportedNavigationPackage(sbn.getPackageName())) return;
-        // 高德会用多条通知表示同一导航，并在步骤更新时替换其中一条。
-        // 延迟扫描仍存活的地图导航通知，避免把普通通知替换误判为导航结束。
+        if (!SESSION.isActive() || !sbn.getPackageName().equals(SESSION.getActiveSource())) return;
+
+        long delay = END_VERIFY_DELAY_MS;
+        JSONObject current = LastNavCache.get();
+        if (current != null && "arrive".equals(current.optString("action"))) {
+            delay = ARRIVAL_END_VERIFY_DELAY_MS;
+        }
         if (END_HANDLER != null) {
             END_HANDLER.removeCallbacksAndMessages(null);
-            END_HANDLER.postDelayed(this::verifyNavigationEnded, END_VERIFY_DELAY_MS);
+            END_HANDLER.postDelayed(this::verifyNavigationEnded, delay);
         } else {
             verifyNavigationEnded();
         }
     }
 
     private void verifyNavigationEnded() {
+        String activeSource = SESSION.getActiveSource();
+        if (!SESSION.isActive() || activeSource.isEmpty()) return;
         try {
             StatusBarNotification[] active = getActiveNotifications();
             if (active != null) {
                 for (StatusBarNotification item : active) {
-                    if (item == null || !isSupportedNavigationPackage(item.getPackageName())) continue;
+                    if (item == null || !activeSource.equals(item.getPackageName())) continue;
                     String text = notificationText(item.getNotification());
                     if (!isExplicitEnd(text) && NavParser.looksLikeNavigation(text)) {
-                        Log.d(TAG, "Navigation notification replacement detected; keep navigation active");
+                        Log.d(TAG, "Navigation notification replacement detected; keep session active");
                         return;
                     }
                 }
@@ -139,65 +146,83 @@ public class NavNotificationListener extends NotificationListenerService {
             Log.w(TAG, "Cannot verify navigation notification removal", e);
             return;
         }
-        Log.i(TAG, "No active navigation notification remains; ending navigation");
-        lastNavigationKey = null;
-        lastNavigationPackage = null;
-        LastNavCache.setDebug("[导航结束] 地图导航通知已全部移除");
-        NavDataBus.clear();
+        endNavigation(activeSource, "地图导航通知已全部移除");
     }
 
     private void handleNotification(StatusBarNotification sbn) {
         if (sbn == null) return;
-        String pkg = sbn.getPackageName();
-        if (!isSupportedNavigationPackage(pkg)) return;
+        String sourcePackage = sbn.getPackageName();
+        if (!isSupportedNavigationPackage(sourcePackage)) return;
+        long capturedAt = System.currentTimeMillis();
 
-        Notification notification = sbn.getNotification();
-        String rawText = notificationText(notification);
+        String rawText = notificationText(sbn.getNotification());
         if (TextUtils.isEmpty(rawText)) return;
-
-        Log.d(TAG, "Navigation notification from " + pkg + ": " + rawText);
-        LastNavCache.setNotificationDebug("[" + pkg + "] " + rawText);
+        LastNavCache.setNotificationDebug("[" + NavProtocol.sourceName(sourcePackage) + "] " + rawText);
+        NavStateRepository.get().onMapNotification(NavProtocol.sourceName(sourcePackage));
 
         if (isExplicitEnd(rawText)) {
-            lastNavigationKey = null;
-            lastNavigationPackage = null;
-            LastNavCache.setDebug("[导航结束] " + rawText);
-            NavDataBus.clear();
+            endNavigation(sourcePackage, rawText);
             return;
         }
-
         if (!NavParser.looksLikeNavigation(rawText)) {
             Log.d(TAG, "Notification is not navigation: " + rawText);
             return;
         }
-        JSONObject nav = NavParser.parse(rawText, pkg);
-        if (nav == null) {
-            LastNavCache.setDebug("[解析失败] " + rawText);
+
+        NavInstruction instruction = NavParser.parseInstruction(rawText);
+        long parsedAt = System.currentTimeMillis();
+        if (instruction == null) {
+            LastNavCache.setDebug("[解析失败] 未提取到导航动作");
             return;
         }
-        lastNavigationKey = sbn.getKey();
-        lastNavigationPackage = pkg;
-        LastNavCache.set(nav);
-        Log.i(TAG, "Navigation parsed: action=" + nav.optString("action")
-                + ", distance=" + nav.optString("distanceText")
-                + ", source=" + pkg);
-        NavDataBus.publish(nav);
+
+        NavSessionController.Decision decision = SESSION.accept(
+                sourcePackage, sbn.getKey(), instruction,
+                capturedAt, parsedAt, System.currentTimeMillis());
+        if (!decision.accepted) {
+            Log.d(TAG, "Navigation candidate ignored: " + decision.reason);
+            return;
+        }
+
+        JSONObject snapshot = NavProtocol.snapshot(decision);
+        LastNavCache.set(snapshot);
+        LastNavCache.setDebug("[导航更新] " + NavProtocol.sourceName(sourcePackage)
+                + " · " + instruction.action + " · #" + decision.seq);
+        Log.i(TAG, "Navigation parsed: session=" + decision.sessionId
+                + ", seq=" + decision.seq + ", action=" + instruction.action
+                + ", distance=" + instruction.distanceText + ", source=" + sourcePackage);
+        NavDataBus.publish(snapshot);
+    }
+
+    private void endNavigation(String sourcePackage, String reason) {
+        NavSessionController.EndDecision decision = SESSION.end(sourcePackage,
+                System.currentTimeMillis());
+        if (!decision.accepted) {
+            Log.d(TAG, "Navigation end ignored: " + decision.reason + ", source=" + sourcePackage);
+            return;
+        }
+        JSONObject end = NavProtocol.end(decision);
+        // 清理必须独立于 NavigationService 是否存活，防止重连时复活旧快照。
+        LastNavCache.clear(end);
+        LastNavCache.setDebug("[导航结束] " + reason);
+        NavDataBus.clear(end);
+        Log.i(TAG, "Navigation ended: session=" + decision.sessionId + ", seq=" + decision.seq);
     }
 
     private boolean isExplicitEnd(String text) {
         return text != null && (text.contains("导航结束") || text.contains("导航已结束")
-                || text.contains("到达目的地") || text.contains("退出导航"));
+                || text.contains("退出导航") || text.contains("停止导航"));
     }
 
     private String notificationText(Notification notification) {
         if (notification == null || notification.extras == null) return "";
         Bundle extras = notification.extras;
         StringBuilder raw = new StringBuilder();
-        append(raw, cs(extras, NotificationCompat.EXTRA_TITLE));
-        append(raw, cs(extras, NotificationCompat.EXTRA_TEXT));
-        append(raw, cs(extras, NotificationCompat.EXTRA_BIG_TEXT));
-        append(raw, cs(extras, NotificationCompat.EXTRA_SUB_TEXT));
-        append(raw, cs(extras, NotificationCompat.EXTRA_SUMMARY_TEXT));
+        append(raw, charSequence(extras, NotificationCompat.EXTRA_TITLE));
+        append(raw, charSequence(extras, NotificationCompat.EXTRA_TEXT));
+        append(raw, charSequence(extras, NotificationCompat.EXTRA_BIG_TEXT));
+        append(raw, charSequence(extras, NotificationCompat.EXTRA_SUB_TEXT));
+        append(raw, charSequence(extras, NotificationCompat.EXTRA_SUMMARY_TEXT));
         CharSequence info = extras.getCharSequence(NotificationCompat.EXTRA_INFO_TEXT);
         if (!TextUtils.isEmpty(info)) append(raw, info.toString());
         return raw.toString().replaceAll("\\s+", " ").trim();
@@ -207,8 +232,8 @@ public class NavNotificationListener extends NotificationListenerService {
         if (!TextUtils.isEmpty(value)) builder.append(value).append(' ');
     }
 
-    private String cs(Bundle extras, String key) {
-        CharSequence c = extras.getCharSequence(key);
-        return c != null ? c.toString() : null;
+    private String charSequence(Bundle extras, String key) {
+        CharSequence value = extras.getCharSequence(key);
+        return value == null ? null : value.toString();
     }
 }

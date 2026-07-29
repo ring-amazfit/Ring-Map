@@ -3,8 +3,16 @@ const fs = require('fs')
 
 const app = JSON.parse(fs.readFileSync('app.json', 'utf8'))
 const about = fs.readFileSync('page/about.js', 'utf8')
+const releaseScript = fs.readFileSync('scripts/build-watch-release.cjs', 'utf8')
 
-assert.strictEqual(app.app.version.code, 8, 'watch version code must increase so Zepp installs the Android recovery release')
-assert.strictEqual(app.app.version.name, '2.4.1', 'watch version name must identify the Android recovery release')
-assert(about.includes('手表端 2.4.1 · APPID 1121554'), 'about page must report the installable watch version')
+assert.strictEqual(app.app.version.code, 9, 'watch version code must increase for the protocol v2 release')
+assert.strictEqual(app.app.version.name, '3.0.0', 'watch version name must identify the product rebuild')
+assert(about.includes('ZeppOS 3.0.0 · APP ID 1121554'), 'about page must report the installable watch version')
+assert(about.includes("src: 'github-qr.png'"), 'about page must include the repository QR')
+for (const target of ['balance', 'gtr4', 'gtr4-limited', 'cheetahpro', 'active2', 'active2-nfc', 'trex3', 'trex3-pro']) {
+  assert(releaseScript.includes(`'${target}'`), `release script must build ${target}`)
+}
+assert(releaseScript.includes("run(['prune', '--ip'])"), 'every target release must be pruned after build')
+assert(releaseScript.includes('restoreOriginalDist') && releaseScript.includes('finally'), 'release failures must restore the previous dist contents')
+assert(releaseScript.includes('writeChecksums') && releaseScript.includes("createHash('sha256')"), 'release success must regenerate SHA256SUMS')
 console.log('watch release version tests passed')
