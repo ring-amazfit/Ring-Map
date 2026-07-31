@@ -56,7 +56,7 @@ Arrow, distance, instruction, and road slots do not intersect. Decorative road i
 
 ## Motion and haptics
 
-Pages use ZeppOS route transitions. A navigation update replaces widgets once; backgrounds do not continuously animate. Balance may destroy the app on screen-off, so wake relaunch first restores the fresh cached snapshot, automatically returns to the navigation page when the session is still active, and then performs an event-driven resync.
+Pages use ZeppOS route transitions. A navigation update replaces widgets once; backgrounds do not continuously animate. Balance may destroy the app on screen-off, so its teardown signals `watch_sleep`; App-Side then retains only the newest Android snapshot rather than enqueueing periodic notification refreshes over Bluetooth. Wake relaunch restores the fresh cached snapshot, automatically returns to the navigation page when the session is still active, and immediately performs `watch_ready` / resync reconciliation.
 
 Haptics are global rather than page-owned:
 

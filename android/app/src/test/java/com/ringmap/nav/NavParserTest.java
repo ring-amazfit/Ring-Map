@@ -78,6 +78,35 @@ public class NavParserTest {
     }
 
     @Test
+    public void parsesBaiduContinuationLaneChangeAndFullRoadName() {
+        NavInstruction continuation = NavParser.parseInstruction(
+                "前方300米继续行驶，沿京港澳高速公路行驶");
+
+        assertEquals("straight", continuation.action);
+        assertEquals(300, continuation.distance);
+        assertEquals("京港澳高速公路", continuation.road);
+        assertEquals("complete", NavSessionController.qualityOf(continuation));
+        assertEquals("merge_left", NavParser.detectAction("前方300米请向左变道"));
+        assertEquals("merge_right", NavParser.detectAction("前方200米请向右变道"));
+        assertEquals("keep_left", NavParser.detectAction("请走最左车道"));
+        assertEquals("keep_right", NavParser.detectAction("请走最右车道"));
+    }
+
+    @Test
+    public void normalizesFullWidthDistanceDigits() {
+        NavInstruction result = NavParser.parseInstruction("前方３００米继续行驶");
+
+        assertEquals("straight", result.action);
+        assertEquals(300, result.distance);
+    }
+
+    @Test
+    public void joinsInboxStyleTextLinesWithoutLosingTheNavigationStep() {
+        assertEquals("导航中 前方300米继续行驶 沿中山路行驶",
+                NavNotificationListener.joinNotificationText("导航中", "前方300米继续行驶", "沿中山路行驶"));
+    }
+
+    @Test
     public void includesExactSourcePackageInParsedJson() throws Exception {
         // JSONObject 在 Android 本地单元测试环境未提供实现；来源字段由通知监听器写入，
         // 这里用源码契约测试覆盖重载入口，实际 JSON 行为在 Android 构建中验证。

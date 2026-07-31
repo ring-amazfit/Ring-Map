@@ -198,15 +198,17 @@ public class NavNotificationListener extends NotificationListenerService {
 
         String rawText = notificationText(sbn.getNotification());
         if (TextUtils.isEmpty(rawText)) return;
-        LastNavCache.setNotificationDebug("[" + NavProtocol.sourceName(sourcePackage) + "] " + rawText);
-        NavStateRepository.get().onMapNotification(NavProtocol.sourceName(sourcePackage));
+        String sourceName = NavProtocol.sourceName(sourcePackage);
+        // 通知正文仅用于本次解析与已连接手表的当前步骤显示；诊断缓存不保留正文或路名。
+        LastNavCache.setNotificationDebug("[通知到达] " + sourceName);
+        NavStateRepository.get().onMapNotification(sourceName);
 
         if (isExplicitEnd(rawText)) {
-            endNavigation(sourcePackage, rawText, notificationAt);
+            endNavigation(sourcePackage, "地图导航已结束", notificationAt);
             return;
         }
         if (!NavParser.looksLikeNavigation(rawText)) {
-            Log.d(TAG, "Notification is not navigation: " + rawText);
+            Log.d(TAG, "Notification is not navigation: source=" + sourcePackage);
             return;
         }
 
@@ -221,6 +223,8 @@ public class NavNotificationListener extends NotificationListenerService {
                 sourcePackage, sbn.getKey(), instruction, notificationAt,
                 capturedAt, parsedAt, System.currentTimeMillis());
         if (!decision.accepted) {
+            LastNavCache.setDebug("[导航忽略] " + decision.reason + " · " + instruction.action);
+            NavStateRepository.get().record("解析", "候选已忽略 · " + decision.reason);
             Log.d(TAG, "Navigation candidate ignored: " + decision.reason);
             return;
         }
@@ -245,7 +249,7 @@ public class NavNotificationListener extends NotificationListenerService {
         JSONObject end = NavProtocol.end(decision);
         // 清理必须独立于 NavigationService 是否存活，防止重连时复活旧快照。
         LastNavCache.clear(end);
-        LastNavCache.setDebug("[导航结束] " + reason);
+        LastNavCache.setDebug("[导航结束] " + NavProtocol.sourceName(sourcePackage));
         NavDataBus.clear(end);
         Log.i(TAG, "Navigation ended: session=" + decision.sessionId + ", seq=" + decision.seq);
     }
@@ -266,7 +270,23 @@ public class NavNotificationListener extends NotificationListenerService {
         append(raw, charSequence(extras, NotificationCompat.EXTRA_SUMMARY_TEXT));
         CharSequence info = extras.getCharSequence(NotificationCompat.EXTRA_INFO_TEXT);
         if (!TextUtils.isEmpty(info)) append(raw, info.toString());
-        return raw.toString().replaceAll("\\s+", " ").trim();
+        CharSequence[] lines = extras.getCharSequenceArray(NotificationCompat.EXTRA_TEXT_LINES);
+        if (lines != null) {
+            for (CharSequence line : lines) {
+                if (!TextUtils.isEmpty(line)) append(raw, line.toString());
+            }
+        }
+        return joinNotificationText(raw.toString());
+    }
+
+    static String joinNotificationText(String... values) {
+        StringBuilder output = new StringBuilder();
+        if (values != null) {
+            for (String value : values) {
+                if (value != null && !value.trim().isEmpty()) output.append(value).append(' ');
+            }
+        }
+        return output.toString().replaceAll("\\s+", " ").trim();
     }
 
     private void append(StringBuilder builder, String value) {

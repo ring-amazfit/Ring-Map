@@ -1,6 +1,6 @@
 import { createWidget, widget, align } from '@zos/ui'
 import { px } from '@zos/utils'
-import { back } from '@zos/router'
+import { back, push } from '@zos/router'
 import { applySavedScreenSetting } from '../utils/settings'
 import { drawThemeBackground } from '../utils/theme'
 
@@ -26,12 +26,18 @@ Page({
   build() {
     drawThemeBackground(480)
     text(90, 22, 300, 34, 30, TEXT, 'RINGMAP')
-    text(100, 57, 280, 20, 12, CYAN, 'ZeppOS 3.0.1 · APP ID 1121554')
-    createWidget(widget.IMG, { x: px(152), y: px(104), w: px(176), h: px(176), src: 'github-qr.png' })
-    text(90, 294, 300, 24, 16, TEXT, 'GitHub 仓库')
-    text(54, 320, 372, 22, 12, SUB, 'github.com/ring-amazfit/Ring-Map')
-    text(70, 350, 340, 20, 12, SUB, '本地同步系统导航通知 · 不含地图服务')
-    text(70, 376, 340, 20, 11, MUTED, '导航箭头：Icons8 · 其余视觉：RingMap')
+    text(100, 57, 280, 20, 12, CYAN, 'ZeppOS 1.1.1 · APP ID 1121554')
+    createWidget(widget.IMG, { x: px(152), y: px(88), w: px(152), h: px(152), src: 'github-qr.png' })
+    text(90, 248, 300, 22, 15, TEXT, 'GitHub 仓库')
+    text(54, 271, 372, 20, 12, SUB, 'github.com/ring-amazfit/Ring-Map')
+    createWidget(widget.BUTTON, {
+      x: px(88), y: px(306), w: px(304), h: px(42), radius: px(8), text_size: px(14),
+      color: TEXT, normal_color: PANEL, press_color: PRESS,
+      text: '重新查看 Android 下载二维码',
+      click_func: function() { push({ url: 'page/activation', anim: true }) }
+    })
+    text(70, 362, 340, 20, 12, SUB, '本地同步系统导航通知 · 不含地图服务')
+    text(70, 385, 340, 20, 11, MUTED, '导航箭头：Icons8 · 其余视觉：RingMap')
     createWidget(widget.BUTTON, {
       x: px(216), y: px(416), w: px(48), h: px(40), radius: px(8), text_size: px(28),
       color: TEXT, normal_color: PANEL, press_color: PRESS,

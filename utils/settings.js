@@ -8,6 +8,7 @@ var KEY_HAPTIC_MODE = 'rm_haptic_mode'
 var KEY_BIG_TEXT = 'rm_big_text'
 var KEY_SHOW_SOURCE = 'rm_show_source'
 var KEY_STAY_HOME = 'rm_stay_home'
+var KEY_WATCH_ACTIVATED = 'rm_watch_activated'
 var BRIGHT_ON = 2147483000
 var BRIGHT_OFF = 30000
 
@@ -60,6 +61,14 @@ export function isShowSourceEnabled() { return localStorage.getItem(KEY_SHOW_SOU
 export function setShowSourceEnabled(enabled) { localStorage.setItem(KEY_SHOW_SOURCE, enabled ? '1' : '0') }
 export function isStayHomeEnabled() { return localStorage.getItem(KEY_STAY_HOME) !== '0' }
 export function setStayHomeEnabled(enabled) { localStorage.setItem(KEY_STAY_HOME, enabled ? '1' : '0') }
+
+export function isWatchActivated() {
+  return localStorage.getItem(KEY_WATCH_ACTIVATED) === '1'
+}
+
+export function markWatchActivated() {
+  localStorage.setItem(KEY_WATCH_ACTIVATED, '1')
+}
 
 export function clearNavigationCache() {
   localStorage.removeItem('rm_nav')

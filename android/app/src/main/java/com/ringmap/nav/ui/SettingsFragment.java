@@ -18,6 +18,7 @@ import com.ringmap.nav.R;
 public final class SettingsFragment extends Fragment {
 
     private TextView notificationValue;
+    private TextView connectionProtectionValue;
 
     public SettingsFragment() {
         super(R.layout.fragment_settings);
@@ -27,9 +28,12 @@ public final class SettingsFragment extends Fragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
         notificationValue = view.findViewById(R.id.tvNotificationAccessValue);
+        connectionProtectionValue = view.findViewById(R.id.tvConnectionProtectionValue);
         MainActivity activity = (MainActivity) requireActivity();
         view.findViewById(R.id.rowNotificationAccess)
                 .setOnClickListener(v -> activity.openNotificationAccessSettings());
+        view.findViewById(R.id.rowConnectionProtection)
+                .setOnClickListener(v -> activity.showConnectionProtection());
         view.findViewById(R.id.rowBackgroundAccess)
                 .setOnClickListener(v -> activity.openBackgroundSettings());
         view.findViewById(R.id.rowSources).setOnClickListener(v -> showSources());
@@ -45,6 +49,8 @@ public final class SettingsFragment extends Fragment {
         notificationValue.setText(state.notificationAccess
                 ? (state.listenerConnected ? "已授权 · 监听已连接" : "已授权 · 正在连接监听")
                 : "未授权");
+        connectionProtectionValue.setText(((MainActivity) requireActivity())
+                .isIgnoringBatteryOptimizations() ? "已启用 · 电池不限制" : "建议启用 · 降低后台中断");
     }
 
     private void showSources() {

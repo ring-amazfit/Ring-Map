@@ -55,7 +55,7 @@ public class NavigationService extends Service {
         }
     };
 
-    /** 当前 UI 关心的是可用的通知桥，不是前台 Service 是否恰好存活。 */
+    /** 当前 UI 的可用性以通知监听持有的本机桥为准。 */
     public static boolean isRunning() {
         return NavBridgeRuntime.isRunning();
     }
@@ -70,7 +70,8 @@ public class NavigationService extends Service {
     }
 
     public static String getState() {
-        return NavBridgeRuntime.isRunning() ? "监听桥运行中" : sState;
+        if (!NavBridgeRuntime.isRunning()) return sState;
+        return isForegroundRunning() ? "监听桥运行中" : "监听桥运行中 · 前台服务未运行";
     }
 
     public static String getError() {
@@ -88,7 +89,8 @@ public class NavigationService extends Service {
 
         startForeground(NOTIFICATION_ID, createNotification("后台同步运行中 · 等待导航数据"));
         foregroundStarted = true;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        NavStateRepository.get().setForegroundServiceRunning(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null && !manager.isNotificationListenerAccessGranted(
                     new ComponentName(this, NavNotificationListener.class))) {
@@ -106,6 +108,7 @@ public class NavigationService extends Service {
         if (!foregroundStarted) {
             startForeground(NOTIFICATION_ID, createNotification("后台同步运行中 · 等待导航数据"));
             foregroundStarted = true;
+            NavStateRepository.get().setForegroundServiceRunning(true);
         }
         ensureBridge();
         requestListenerRebind();
@@ -129,10 +132,13 @@ public class NavigationService extends Service {
         Log.w(TAG, "Foreground service timeout, startId=" + startId + ", type=" + fgsType);
         NavStateRepository.get().record("服务", "前台保活到期，通知桥继续运行");
         sState = "前台保活到期";
+        foregroundStarted = false;
+        NavStateRepository.get().setForegroundServiceRunning(false);
         if (NavBridgeRuntime.isRunning()) {
-            NavStateRepository.get().setServiceState(true, "监听桥运行中", "");
+            NavStateRepository.get().setServiceState(true, getState(), "");
         }
-        stopSelf(startId);
+        // Android 15 dataSync 时限到达时必须终止该 FGS；桥接仍由通知监听拥有。
+        stopSelf();
     }
 
     private void ensureBridge() {
@@ -178,8 +184,9 @@ public class NavigationService extends Service {
         foregroundStarted = false;
         sInstance = null;
         sState = "未运行";
+        NavStateRepository.get().setForegroundServiceRunning(false);
         if (NavBridgeRuntime.isRunning()) {
-            NavStateRepository.get().setServiceState(true, "监听桥运行中", "");
+            NavStateRepository.get().setServiceState(true, getState(), "");
         } else {
             NavStateRepository.get().setServiceState(false, sState, getError());
             NavStateRepository.get().setClientCount(0);

@@ -1,16 +1,18 @@
 {
   "name": "ring-map",
-  "version": "3.0.1",
+  "version": "1.1.1",
   "description": "环间导航 - 华米手表骑行导航",
   "scripts": {
     "test": "node --test tests/*.test.cjs",
-    "build": "zeus build",
+    "build": "node scripts/zeus.cjs build",
     "release:watch": "node scripts/build-watch-release.cjs",
-    "dev": "zeus dev --target common",
-    "preview": "zeus preview -t \"Amazfit Balance\""
+    "sync:android": "node scripts/sync-android-mirror.cjs",
+    "prepare:market-assets": "powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"& './scripts/prepare-market-assets.ps1'\"",
+    "dev": "node scripts/zeus.cjs dev --target common",
+    "preview": "node scripts/zeus.cjs preview -t \"Amazfit Balance\""
   },
   "devDependencies": {
-    "@zeppos/zeus-cli": "1.0.6"
+    "@zeppos/zeus-cli": "1.9.0"
   },
   "zeppos": {
     "appId": 1121554

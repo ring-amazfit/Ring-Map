@@ -5,7 +5,7 @@ import { getPackageInfo } from '@zos/app'
 import { localStorage } from '@zos/storage'
 import { push } from '@zos/router'
 import { vibrate } from '@zos/interaction'
-import { getHapticMode } from './utils/settings'
+import { getHapticMode, isWatchActivated, markWatchActivated } from './utils/settings'
 import * as ble from '@zos/ble'
 
 var APP_ID = 1121554
@@ -19,6 +19,9 @@ var routeTimer = null
 var routePushTimer = null
 var transportReconnectTimer = null
 var transportReconnectAttempt = 0
+var transportHandshakeTimer = null
+var transportReady = false
+var pendingResyncRequest = false
 
 var appData = {
   messageBuilder: null,
@@ -31,6 +34,10 @@ var appData = {
   lastAppliedKey: '',
   navState: createNavState(),
   hapticState: createHapticState(),
+  watchActivated: false,
+  activationPageRefresh: null,
+  recoveryId: '',
+  watchReadyAt: 0,
   requestLatestNav: requestLatestNav,
   openNavigationPage: openNavigationPage,
   confirmNavigationPage: confirmNavigationPage,
@@ -44,6 +51,24 @@ function clearDeviceTransportReconnect() {
   }
 }
 
+function clearDeviceTransportHandshake() {
+  if (transportHandshakeTimer !== null) {
+    clearTimeout(transportHandshakeTimer)
+    transportHandshakeTimer = null
+  }
+}
+
+function scheduleDeviceHandshakeRetry(expectedBuilder) {
+  clearDeviceTransportHandshake()
+  var delay = Math.min(8000, 1200 * Math.pow(2, transportReconnectAttempt++))
+  transportHandshakeTimer = setTimeout(function() {
+    transportHandshakeTimer = null
+    if (builder !== expectedBuilder || transportReady) return
+    console.log('RingMap: BLE handshake timed out, retrying')
+    createDeviceTransport()
+  }, delay)
+}
+
 function scheduleDeviceTransportReconnect() {
   if (transportReconnectTimer !== null) return
   var delay = Math.min(8000, 500 * Math.pow(2, transportReconnectAttempt++))
@@ -53,8 +78,14 @@ function scheduleDeviceTransportReconnect() {
   }, delay)
 }
 
+function createRecoveryId() {
+  return 'wake-' + Date.now() + '-' + Math.floor(Math.random() * 1000000)
+}
+
 function createDeviceTransport() {
   clearDeviceTransportReconnect()
+  clearDeviceTransportHandshake()
+  transportReady = false
   var previous = builder
   if (previous) {
     try { previous.disConnect() } catch (e) {}
@@ -67,19 +98,25 @@ function createDeviceTransport() {
       ble: ble
     })
     next.on('call', function(context) {
+      if (builder !== next) return
       try {
         handleWatchPacket(next.buf2Json(context.payload))
       } catch (e) {
         console.log('RingMap: global message error', e)
       }
     })
-    builder = next
-    appData.messageBuilder = next
-    next.connect(function() {
+    next.on('connected', function() {
+      if (builder !== next || transportReady) return
+      transportReady = true
       transportReconnectAttempt = 0
+      clearDeviceTransportHandshake()
       sendWatchReady()
       requestLatestNav()
     })
+    builder = next
+    appData.messageBuilder = next
+    next.connect()
+    scheduleDeviceHandshakeRetry(next)
   } catch (e) {
     console.log('RingMap: device transport create failed', e)
     builder = null
@@ -89,10 +126,7 @@ function createDeviceTransport() {
 }
 
 function sendPacket(packet) {
-  if (!builder || !packet) {
-    scheduleDeviceTransportReconnect()
-    return
-  }
+  if (!builder || !packet || !transportReady) return false
   try {
     var result = builder.call(packet)
     if (result && typeof result.catch === 'function') {
@@ -101,30 +135,79 @@ function sendPacket(packet) {
         scheduleDeviceTransportReconnect()
       })
     }
+    return true
   } catch (e) {
     console.log('RingMap: device packet failed', e)
     scheduleDeviceTransportReconnect()
+    return false
   }
 }
 
 function sendWatchReady() {
+  var now = Date.now()
+  appData.watchReadyAt = now
   sendPacket({
     protocolVersion: 2,
     type: 'watch_ready',
+    recoveryId: appData.recoveryId,
+    watchReadyAt: now,
+    sessionId: appData.navState.sessionId,
+    seq: appData.navState.seq,
+    emittedAt: now
+  })
+}
+
+function sendWatchSleep() {
+  if (!builder || !transportReady) return false
+  var packet = {
+    protocolVersion: 2,
+    type: 'watch_sleep',
+    recoveryId: appData.recoveryId,
+    watchReadyAt: appData.watchReadyAt,
+    sessionId: appData.navState.sessionId,
+    seq: appData.navState.seq,
+    emittedAt: Date.now()
+  }
+  try {
+    builder.notify(packet)
+    return true
+  } catch (e) {
+    console.log('RingMap: watch sleep notify failed', e)
+    return false
+  }
+}
+
+function requestLatestNav() {
+  if (!transportReady) {
+    pendingResyncRequest = true
+    return
+  }
+  pendingResyncRequest = false
+  sendPacket({
+    protocolVersion: 2,
+    type: 'resync',
+    recoveryId: appData.recoveryId,
+    watchReadyAt: appData.watchReadyAt,
     sessionId: appData.navState.sessionId,
     seq: appData.navState.seq,
     emittedAt: Date.now()
   })
 }
 
-function requestLatestNav() {
-  sendPacket({
-    protocolVersion: 2,
-    type: 'resync',
-    sessionId: appData.navState.sessionId,
-    seq: appData.navState.seq,
-    emittedAt: Date.now()
-  })
+function notifyActivation() {
+  if (typeof appData.activationPageRefresh === 'function') {
+    appData.activationPageRefresh(appData.watchActivated)
+  }
+  if (typeof appData.homePageRefresh === 'function') {
+    appData.homePageRefresh(appData.navState.snapshot, appData.navState)
+  }
+}
+
+function activateWatch() {
+  if (appData.watchActivated) return
+  markWatchActivated()
+  appData.watchActivated = true
+  notifyActivation()
 }
 
 function sendAck(snapshot, status, widgetAppliedAt) {
@@ -136,6 +219,12 @@ function sendAck(snapshot, status, widgetAppliedAt) {
     sessionId: snapshot.sessionId,
     sessionStartedAt: snapshot.sessionStartedAt,
     seq: snapshot.seq,
+    recoveryId: snapshot.recoveryId || appData.recoveryId,
+    watchReadyAt: snapshot.watchReadyAt || appData.watchReadyAt || 0,
+    androidResyncReceivedAt: snapshot.androidResyncReceivedAt || 0,
+    androidResyncSentAt: snapshot.androidResyncSentAt || 0,
+    appSideReceivedAt: snapshot.appSideReceivedAt || 0,
+    appSideWatchSentAt: snapshot.appSideWatchSentAt || 0,
     bridgeReceivedAt: snapshot.bridgeReceivedAt || 0,
     bridgeSentAt: snapshot.bridgeSentAt || 0,
     watchReceivedAt: appData.navState.receivedAt || Date.now(),
@@ -172,7 +261,8 @@ function confirmNavigationPage() {
 }
 
 function openNavigationPage() {
-  if (!autoOpenEnabled() || appData.navPageActive || appData.navRoutePending) return
+  if (!appData.watchActivated || !autoOpenEnabled()
+      || appData.navPageActive || appData.navRoutePending) return
   appData.navRoutePending = true
   if (routeTimer !== null) clearTimeout(routeTimer)
   routeTimer = setTimeout(function() {
@@ -254,6 +344,8 @@ function scheduleExpiry() {
 }
 
 function applyPacket(packet) {
+  if (packet.type === 'bridge_state' && packet.status === 'connected'
+      && packet.bridgeOrigin === 'android') activateWatch()
   var previousStatus = appData.navState.status
   var previousSnapshot = appData.navState.snapshot
   var reduced = reduceNavPacket(appData.navState, packet, Date.now())
@@ -322,15 +414,20 @@ App({
   globalData: appData,
 
   onCreate() {
+    appData.recoveryId = createRecoveryId()
+    appData.watchReadyAt = 0
+    appData.watchActivated = isWatchActivated()
     getPackageInfo()
     restoreCachedNavigation()
     createDeviceTransport()
   },
 
   onDestroy() {
+    sendWatchSleep()
     cancelExpiry()
     confirmNavigationPage()
     clearDeviceTransportReconnect()
+    clearDeviceTransportHandshake()
     if (builder) builder.disConnect()
     builder = null
     appData.messageBuilder = null
@@ -340,6 +437,12 @@ App({
     appData.navRoutePending = false
     appData.resumeNavigationOnHome = false
     appData.navSession = ''
+    appData.recoveryId = ''
+    appData.watchReadyAt = 0
+    appData.watchActivated = false
+    appData.activationPageRefresh = null
+    transportReady = false
+    pendingResyncRequest = false
     appData.navState = createNavState()
     appData.hapticState = createHapticState()
     appData.requestLatestNav = requestLatestNav

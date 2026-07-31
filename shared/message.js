@@ -268,7 +268,11 @@ export class MessageBuilder extends EventBus {
     this.ble &&
       this.ble.createConnect((index, data, size) => {
         DEBUG && logger.warn('[RAW] [R] receive index=>%d size=>%d bin=>%s', index, size, bin2hex(data))
-        this.onFragmentData(data)
+        try {
+          this.onFragmentData(data)
+        } catch (error) {
+          logger.error('discard invalid BLE frame', error)
+        }
       })
 
     this.sendShake()
@@ -377,6 +381,9 @@ export class MessageBuilder extends EventBus {
 
   readBin(arrayBuf) {
     const buf = Buffer.from(arrayBuf)
+    if (buf.byteLength < MESSAGE_HEADER) {
+      throw Error('invalid message header')
+    }
     let offset = 0
 
     const flag = buf.readUInt8(offset)
@@ -837,15 +844,26 @@ export class MessageBuilder extends EventBus {
     }
   }
 
+  isValidShake(data) {
+    return data && data.flag === MessageFlag.App
+      && data.version === MessageVersion.Version1
+      && data.type === MessageType.Shake
+      && data.appId === this.appId
+      && data.port1 === this.appDevicePort
+      && data.port2 > 0
+  }
+
   onFragmentData(bin) {
     const data = this.readBin(bin)
     this.emit('raw', bin)
 
     DEBUG && logger.debug('receive data=>', JSON.stringify(data))
-    if (data.flag === MessageFlag.App && data.type === MessageType.Shake) {
+    if (this.isValidShake(data)) {
+      var connectedNow = this.appSidePort === 0
       this.appSidePort = data.port2
       logger.debug('appSidePort=>', data.port2)
       this.shakeTask.resolve()
+      if (connectedNow) this.emit('connected', { appSidePort: data.port2 })
     } else if (data.flag === MessageFlag.App && data.type === MessageType.Data && data.port2 === this.appSidePort) {
       this.emit('message', data.payload)
       this.emit('read', data)
@@ -1115,6 +1133,37 @@ export class MessageBuilder extends EventBus {
         dataType
       })
     }
+  }
+
+  /**
+   * Send an already-handshaken notification synchronously. This is used by
+   * lifecycle teardown paths where a Promise microtask could run after BLE is
+   * disconnected.
+   */
+  notify(data) {
+    if (this.appSidePort === 0) throw Error('App-Side handshake is incomplete')
+    if (Buffer.isBuffer(data)) {
+      return this.sendBuf({
+        buf: data,
+        type: MessagePayloadType.Notify,
+        contentType: MessagePayloadDataTypeOp.BIN,
+        dataType: MessagePayloadDataTypeOp.EMPTY
+      })
+    }
+    if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+      return this.sendBuf({
+        buf: Buffer.from(data),
+        type: MessagePayloadType.Notify,
+        contentType: MessagePayloadDataTypeOp.BIN,
+        dataType: MessagePayloadDataTypeOp.EMPTY
+      })
+    }
+    return this.sendJson({
+      json: data,
+      type: MessagePayloadType.Notify,
+      contentType: MessagePayloadDataTypeOp.JSON,
+      dataType: MessagePayloadDataTypeOp.EMPTY
+    })
   }
 
   /**

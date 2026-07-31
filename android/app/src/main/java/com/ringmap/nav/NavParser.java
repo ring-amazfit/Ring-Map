@@ -12,7 +12,8 @@ public final class NavParser {
     private static final Pattern DISTANCE_PATTERN = Pattern.compile(
             "(\\d+(?:\\.\\d+)?)\\s*(公里|千米|米|m|km)", Pattern.CASE_INSENSITIVE);
     private static final Pattern ROAD_PATTERN = Pattern.compile(
-            "(?:进入|驶入|沿|上)\\s*([\\u4e00-\\u9fa5A-Za-z0-9]{2,24}(?:路|街|道|桥|高速|国道|乡道|镇道))");
+            "(?:进入|驶入|沿|上|经由|途经)\\s*([\\u4e00-\\u9fa5A-Za-z0-9]{2,24}?)"
+                    + "(?=行驶|前行|直行|继续|[,，。；;]|$)");
     private static final Pattern REDUNDANT_SOURCE_SUFFIX = Pattern.compile(
             "\\s*[|｜·]\\s*(?:高德|百度)(?:地图)?导航(?:中)?$");
 
@@ -98,22 +99,28 @@ public final class NavParser {
         if (containsAny(text, "稍向右", "稍右")) return "slight_right";
         if (containsAny(text, "左前方", "向左前方")) return "forward_left";
         if (containsAny(text, "右前方", "向右前方")) return "forward_right";
-        if (containsAny(text, "靠左", "保持左侧", "左侧车道行驶")) return "keep_left";
-        if (containsAny(text, "靠右", "保持右侧", "右侧车道行驶")) return "keep_right";
-        if (containsAny(text, "向左合流", "左侧合流", "向左汇入")) return "merge_left";
-        if (containsAny(text, "向右合流", "右侧合流", "向右汇入")) return "merge_right";
+        if (containsAny(text, "靠左", "保持左侧", "左侧车道行驶", "最左车道", "左车道")) return "keep_left";
+        if (containsAny(text, "靠右", "保持右侧", "右侧车道行驶", "最右车道", "右车道")) return "keep_right";
+        if (containsAny(text, "向左合流", "左侧合流", "向左汇入", "向左变道", "左变道")) return "merge_left";
+        if (containsAny(text, "向右合流", "右侧合流", "向右汇入", "向右变道", "右变道")) return "merge_right";
         if (containsAny(text, "左侧岔路", "左侧分叉", "向左分岔")) return "fork_left";
         if (containsAny(text, "右侧岔路", "右侧分叉", "向右分岔")) return "fork_right";
         if (containsAny(text, "左侧出口", "从左出口", "左侧匝道")) return "exit_left";
         if (containsAny(text, "右侧出口", "从右出口", "右侧匝道")) return "exit_right";
         if (containsAny(text, "左转", "左转弯", "向左转", "左拐")) return "turn_left";
         if (containsAny(text, "右转", "右转弯", "向右转", "右拐")) return "turn_right";
-        if (containsAny(text, "直行", "继续向前", "向前行驶", "保持向前")) return "straight";
+        if (containsAny(text, "直行", "继续向前", "向前行驶", "保持向前", "继续行驶", "沿当前道路行驶")) return "straight";
         return "wait";
     }
 
     private static String normalize(String text) {
-        return text.replaceAll("\\s+", " ").trim();
+        StringBuilder normalized = new StringBuilder(text.length());
+        for (int index = 0; index < text.length(); index++) {
+            char value = text.charAt(index);
+            normalized.append(value >= '０' && value <= '９'
+                    ? (char) ('0' + value - '０') : value);
+        }
+        return normalized.toString().replaceAll("\\s+", " ").trim();
     }
 
     private static boolean containsAny(String text, String... values) {

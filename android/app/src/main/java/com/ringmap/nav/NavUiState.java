@@ -20,7 +20,10 @@ public final class NavUiState {
     public final boolean notificationAccess;
     public final boolean listenerConnected;
     public final String listenerState;
+    /** Whether the notification-owned local bridge is currently usable. */
     public final boolean serviceRunning;
+    /** Whether NavigationService currently has an active foreground notification. */
+    public final boolean foregroundServiceRunning;
     public final String serviceState;
     public final String serviceError;
     public final int clientCount;
@@ -56,6 +59,7 @@ public final class NavUiState {
         listenerConnected = builder.listenerConnected;
         listenerState = value(builder.listenerState);
         serviceRunning = builder.serviceRunning;
+        foregroundServiceRunning = builder.foregroundServiceRunning;
         serviceState = value(builder.serviceState);
         serviceError = value(builder.serviceError);
         clientCount = builder.clientCount;
@@ -125,6 +129,7 @@ public final class NavUiState {
         private boolean listenerConnected;
         private String listenerState = "未连接";
         private boolean serviceRunning;
+        private boolean foregroundServiceRunning;
         private String serviceState = "未运行";
         private String serviceError = "";
         private int clientCount;
@@ -159,6 +164,7 @@ public final class NavUiState {
         public Builder listenerConnected(boolean value) { listenerConnected = value; return this; }
         public Builder listenerState(String value) { listenerState = value; return this; }
         public Builder serviceRunning(boolean value) { serviceRunning = value; return this; }
+        public Builder foregroundServiceRunning(boolean value) { foregroundServiceRunning = value; return this; }
         public Builder serviceState(String value) { serviceState = value; return this; }
         public Builder serviceError(String value) { serviceError = value; return this; }
         public Builder clientCount(int value) { clientCount = value; return this; }

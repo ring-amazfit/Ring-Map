@@ -24,7 +24,7 @@ AppSettingsPage({
 
     return View({ style: { background: BG, width: '100%', minHeight: '100%', padding: '16px' } }, [
       Text({ style: { fontSize: '24px', fontWeight: 'bold', color: TEXT, textAlign: 'center', marginTop: '8px' }, text: 'RINGMAP' }),
-      Text({ style: { fontSize: '12px', color: CYAN, textAlign: 'center', marginTop: '4px', marginBottom: '18px' }, text: 'Android 3.0.1 · ZeppOS 3.0.1 · 协议 v2' }),
+      Text({ style: { fontSize: '12px', color: CYAN, textAlign: 'center', marginTop: '4px', marginBottom: '18px' }, text: 'Android Alpha-2 · ZeppOS 1.1.1 · 协议 v2' }),
 
       Panel([
         Heading('连接状态'),

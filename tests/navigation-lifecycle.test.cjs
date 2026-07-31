@@ -17,7 +17,9 @@ assert(side.includes('lastNavData = null'), 'app-side must clear its recovery ca
 assert(side.includes('connectionEpoch'), 'app-side must invalidate stale socket callbacks')
 assert(side.includes("connectionState === 'connecting'"), 'app-side must guard a connection already in progress')
 assert(side.includes("type: 'ping'"), 'app-side must maintain an application heartbeat')
-assert(!side.includes('setInterval(sendNavRequest, 5000)'), 'app-side must not use the backwards cache-request loop')
+assert.ok(!side.includes("reconnectNow('手表唤醒"), 'watch resume must not replace a healthy socket solely because sleep deferred a heartbeat')
+assert.ok(side.includes('WATCH_SNAPSHOT_COALESCE_MS'), 'App-Side must coalesce fast Android refreshes before forwarding to the watch')
+assert.ok(side.includes("packet.type === 'watch_sleep'"), 'App-Side must stop emitting live snapshots after the watch reports sleep')
 
 assert(app.includes("from './shared/nav-state'"), 'watch app must use the protocol reducer')
 assert(app.includes('reduceNavPacket'), 'watch app must reduce every packet through session and sequence rules')

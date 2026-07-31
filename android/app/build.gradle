@@ -6,12 +6,16 @@ android {
     namespace 'com.ringmap.nav'
     compileSdk 35
 
+    buildFeatures {
+        buildConfig true
+    }
+
     defaultConfig {
         applicationId "com.ringmap.nav"
         minSdk 24
         targetSdk 35
-        versionCode 11
-        versionName "3.0.1"
+        versionCode 13
+        versionName "Alpha-2"
     }
 
     buildTypes {

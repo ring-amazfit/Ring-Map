@@ -61,8 +61,12 @@ public final class StatusFragment extends Fragment {
         current = state;
         permission.setText(state.notificationAccess ? "已授予" : "未授予");
         listener.setText(state.notificationAccess ? state.listenerState : "等待授权");
-        service.setText(state.serviceRunning ? "运行中 · 127.0.0.1:8886"
-                : (state.serviceError.isEmpty() ? state.serviceState : "异常 · " + state.serviceError));
+        if (state.serviceRunning) {
+            service.setText((state.foregroundServiceRunning ? "前台保活 · " : "监听桥 · ")
+                    + "127.0.0.1:8886");
+        } else {
+            service.setText(state.serviceError.isEmpty() ? state.serviceState : "异常 · " + state.serviceError);
+        }
         if (state.clientCount <= 0) {
             watch.setText("未检测到 App-Side 连接");
         } else if (state.lastAckAt <= 0L) {

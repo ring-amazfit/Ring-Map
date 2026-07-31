@@ -7,6 +7,7 @@ const navigation = fs.readFileSync('page/navigation.js', 'utf8')
 const settings = fs.readFileSync('page/settings.js', 'utf8')
 const themePage = fs.readFileSync('page/theme.js', 'utf8')
 const about = fs.readFileSync('page/about.js', 'utf8')
+const activation = fs.readFileSync('page/activation.js', 'utf8')
 const icons = fs.readFileSync('utils/icons.js', 'utf8')
 const theme = fs.readFileSync('utils/theme.js', 'utf8')
 const screenSettings = fs.readFileSync('utils/settings.js', 'utf8')
@@ -19,8 +20,8 @@ function pngInfo(file) {
   return { width: data.readUInt32BE(16), height: data.readUInt32BE(20), colorType: data.readUInt8(25) }
 }
 
-assert.equal(config.app.version.name, '3.0.1')
-assert.equal(config.app.version.code, 13)
+assert.equal(config.app.version.name, '1.1.1')
+assert.equal(config.app.version.code, 18)
 assert.ok(home.includes('drawThemeBackground'), 'home must render the selected watch theme background')
 assert.ok(home.includes('appData.markApplied(nav)'), 'home must acknowledge snapshots after its widgets are applied')
 assert.ok(navigation.includes('drawThemeBackground'), 'navigation must render the selected watch theme background')
@@ -41,7 +42,8 @@ assert.ok(!/setProperty\(prop\.MORE,\s*\{\s*normal_color/.test(themePage), 'BUTT
 assert.ok(config.targets.balance.module.page.pages.includes('page/theme'), 'every target must package the theme picker')
 assert.ok(!settings.includes('重新同步'), 'watch recovery must be automatic instead of exposing a manual restart control')
 assert.ok(about.includes("src: 'github-qr.png'"), 'watch About must render the repository QR')
-assert.ok(about.includes('3.0.1'), 'watch About must show the release version')
+assert.ok(activation.includes("src: 'download-qr.png'"), 'activation must render the companion download QR')
+assert.ok(about.includes('ZeppOS 1.1.1'), 'watch About must show the current test version')
 assert.ok(app.includes('evaluateHaptic') && haptic.includes('hapticToken'), 'global watch app must deduplicate haptics by semantic token')
 assert.ok(app.includes('markApplied'), 'global watch app must support applied acknowledgements')
 assert.ok(app.includes('scheduleDeviceTransportReconnect'), 'watch MessageBuilder failures must self-recover without reopening the app')
@@ -59,6 +61,7 @@ for (const action of actions) {
 }
 for (const [target, value] of Object.entries(config.targets)) {
   assert.ok(value.module.page.pages.includes('page/theme'), `${target} must package the theme picker`)
+  assert.ok(value.module.page.pages.includes('page/activation'), `${target} must package first-connection activation`)
   const width = value.designWidth
   const appIcon = pngInfo(`assets/${target}/icon.png`)
   assert.equal(appIcon.width, 248, `${target} app icon width`)
@@ -71,7 +74,9 @@ for (const [target, value] of Object.entries(config.targets)) {
   assert.equal(anime.width, width, `${target} anime background width`)
   assert.equal(anime.height, width, `${target} anime background height`)
   const qr = pngInfo(`assets/${target}/github-qr.png`)
+  const downloadQr = pngInfo(`assets/${target}/download-qr.png`)
   assert.ok(qr.width === (width === 466 ? 172 : 176), `${target} QR width`)
+  assert.ok(downloadQr.width === (width === 466 ? 172 : 176), `${target} download QR width`)
   for (const name of ['switch-on.png', 'switch-off.png', 'switch-thumb.png']) {
     const switchImage = pngInfo(`assets/${target}/${name}`)
     assert.equal(switchImage.colorType, 6, `${target}/${name} must retain transparency`)

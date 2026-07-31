@@ -1,126 +1,192 @@
-# RingMap · 环间导航
+<p align="center">
+  <img src="./icon.png" width="112" alt="环间导航图标">
+</p>
 
-RingMap 将手机系统中的高德/百度导航通知实时同步到 ZeppOS 手表。它只展示当前下一步，不自行定位、规划路线或请求地图 API。
+<h1 align="center">环间导航</h1>
 
-- Android：`3.0.1`，包名 `com.ringmap.nav`
-- ZeppOS：`3.0.1`，App ID `1121554`
-- 同步协议：`v2`
-- 仓库：<https://github.com/ring-amazfit/Ring-Map>
+<p align="center"><a href="./README_EN.md">English</a></p>
 
-## 视觉预览
+<p align="center">一款运行在 Amazfit Zepp OS 圆形屏手表上的骑行导航同步应用，将高德地图与百度地图的系统导航通知实时显示到手表。</p>
 
-以下为基于实际 480px 资源和页面坐标生成的圆屏设计预览；最终字体栅格与裁切以具体手表为准。
+<p align="center">
+  <a href="#功能概览">功能</a> ·
+  <a href="#界面预览">界面预览</a> ·
+  <a href="#使用说明">使用</a> ·
+  <a href="#开发与构建">开发</a> ·
+  <a href="./LICENSE">MIT License</a>
+</p>
 
-| 实时导航 | 骑行设置 | 关于与 GitHub |
-| --- | --- | --- |
-| ![实时导航](docs/images/watch-navigation-preview.png) | ![骑行设置](docs/images/watch-settings-preview.png) | ![关于](docs/images/watch-about-preview.png) |
+> [!NOTE]
+> 当前预览版：Android `Alpha-2`（version code `13`）· ZeppOS `v1.1.1`（version code `18`）· App ID：`1121554` · 适用于 Zepp OS 3.0 及以上运行环境。
 
-## 数据链路
+## 功能概览
 
-```text
-高德 / 百度系统导航通知
-  -> Android NotificationListenerService
-  -> NavParser + NavSessionController
-  -> 本机 WebSocket 127.0.0.1:8886
-  -> Zepp App-Side
-  -> MessageBuilder / BLE
-  -> ZeppOS 全局状态 reducer
-  -> 手表页面
-```
+### Android 导航同步
 
-Android 是导航会话的唯一权威。每个权威状态携带单调 `stateRevision`，快照另含 `sessionId + seq + ttlMs`；App-Side 和手表只保存最新状态，并保留结束会话 tombstone，拒绝旧序号、延迟 idle、旧会话复活和过期方向。连接恢复后直接请求权威快照，不回放旧步骤队列。
+- 仅读取高德地图与百度地图的 Android 系统导航通知，不接入地图 SDK、路线规划、定位或地图 Web API。
+- 将当前下一步动作、距离、道路与来源通过手机本机桥接同步到手表。
+- Android 是唯一导航会话权威；手表和 App-Side 仅保留最新有效快照，拒绝旧序号、过期方向和延迟结束事件。
+- 支持直行、左右转、轻微/急转、掉头、靠边、环岛、合流、分叉、出口、到达、重新规划和等待等状态。
 
-协议细节见 [docs/PROTOCOL_V2.md](docs/PROTOCOL_V2.md)。圆屏布局和视觉约束见 [docs/DESIGN.md](docs/DESIGN.md)。
+### 实时导航与手表显示
 
-## 主要能力
+- 导航页使用 152px 原色动作图、超大距离、道路和来源状态，等待状态只显示文字，不保留旧方向。
+- 提供夜骑道路、纯黑、导航娘三种主题；“导航娘”配置兼容既有 `anime` 存储键。
+- 支持自动进入导航、骑行大字、持续亮屏、显示来源，以及关闭、转向和临近距离三档震动提醒。
+- 手表息屏唤醒后会恢复本地有效缓存、完成连接握手并请求最新权威状态，不回放过期队列。
 
-- 高德地图与百度地图系统导航通知解析
-- 26 类导航动作：直行、普通/轻微/急转、前后方、左右掉头、靠左/靠右、环岛、合流、分叉、出口、到达、重新规划和等待
-- 语义去重、单调序号、来源锁定、通知替换宽限和 45 秒旧数据失效
-- 每个 App-Side 上下文保持单 WebSocket；Android 允许 Zepp 的多个合法 companion 上下文并存，避免相互驱逐重连
-- 手表 accepted/applied ACK 与 Android -> App-Side -> Watch 分段时序诊断
-- 自动进入导航、骑行大字、持续亮屏、显示来源，以及唤醒后的自动重连与快照恢复
-- 夜骑道路、纯黑、导航娘三套手表主题；等待连接/确认时只显示文字
-- 152px 手表动作图与 152dp Android 动作槽位
-- 三态震动：关闭、仅新转向、转向 + 500/200/80 米临近提醒
-- Android Material 3 / Monet 多页面界面：状态、实时导航、诊断、设置、关于
-- 手表关于页 GitHub 二维码；Android 关于页直接打开仓库
+### 连接保护与诊断
+
+- Android 配套端显示通知授权、真实监听连接、后台同步桥、Zepp App-Side 连接和手表控件确认状态。
+- “增强连接”会显示真实电池不限制状态，并通过官方系统流程请求用户允许；同时提供自启动、后台运行和不从最近任务清理应用的系统指引。
+- 如果系统强制停止应用，进程、前台服务和通知监听都会终止；普通应用无法自行复活，重新打开 RingMap 后即可恢复。
+- Android、App-Side 和手表确认消息带有相关时间戳，便于定位通知解析、桥接、连接或页面绘制的延迟边界。
+
+### 首次连接与激活
+
+- 手表端首次使用需要先安装 Android 配套端，并通过 Zepp 与手机建立连接后自动激活。
+- 未激活时，首页提供 Android 配套端下载二维码；“关于”页面可随时重新查看下载入口。
+- Android 配套端下载：<https://yun.139.com/shareweb/#/w/i/2wFGpV8ee03ge>
+
+## 界面预览
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="./docs/images/android-status.jpg" alt="Android 同步状态" width="100%"><br>
+      <sub><b>同步状态</b><br>权限、通知监听、后台服务与手表确认状态</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="./docs/images/android-live-navigation.jpg" alt="Android 实时导航" width="100%"><br>
+      <sub><b>实时导航</b><br>系统通知镜像与 Android 到手表的同步状态</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="./docs/images/watch-left-turn.jpg" alt="手表转向指令" width="100%"><br>
+      <sub><b>手表转向</b><br>动作、距离、道路与实时来源状态</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="./docs/images/watch-waiting.jpg" alt="手表等待导航" width="100%"><br>
+      <sub><b>等待导航</b><br>连接正常时的文字等待状态与夜骑道路主题</sub>
+    </td>
+  </tr>
+</table>
 
 ## 支持设备
 
-| Target | 设计宽度 |
-| --- | ---: |
-| Amazfit Balance | 480 |
-| Amazfit Cheetah Pro | 480 |
-| Amazfit Active 2 | 466 |
-| Amazfit GTR 4 | 466 |
-| Amazfit T-Rex 3 | 480 |
-| Amazfit T-Rex 3 Pro | 480 |
+`app.json` 当前声明支持以下圆形屏 Amazfit 设备：
 
-资源按 target 原生输出；背景、动作图和二维码均进入对应 `assets/<target>`，不依赖运行时缩放源文件。
+| 系列 | 分辨率目标 | 输入方式 |
+| --- | ---: | --- |
+| Amazfit Balance | 480 × 480 | 触控 |
+| Amazfit Cheetah Pro | 480 × 480 | 触控 |
+| Amazfit T-Rex 3 | 480 × 480 | 触控 |
+| Amazfit T-Rex 3 Pro | 480 × 480 | 触控 |
+| Amazfit Active 2（圆形版） | 466 × 466 | 触控 |
+| Amazfit GTR 4 / GTR 4 LE | 466 × 466 | 触控 |
 
-## 使用
+> [!NOTE]
+> 仅包含 `app.json` 当前声明的圆形屏目标。设备系统版本、地区、Zepp App 版本和开发者中心可选设备会影响实际上架与安装范围。
 
-1. 安装 Android 配套 App。
-2. 在系统设置授予 RingMap「通知使用权」。
-3. 允许应用自启动、后台运行和电池不限制。
-4. 通过 Zepp 安装手表端 RingMap，并保持 Zepp 与手表连接。
-5. 在高德或百度开始导航；当前步骤会自动同步。
+## 使用说明
 
-Android 的“已授权”只代表权限记录。状态页中的“系统通知监听已连接”才表示 Android 已建立真实 `NotificationListenerService` 绑定。
+### 首次安装和激活
 
-## 隐私边界
+1. 使用手表端“连接手机后激活”页面的二维码，或打开 [Android 配套端下载链接](https://yun.139.com/shareweb/#/w/i/2wFGpV8ee03ge)。
+2. 安装 Android RingMap，打开一次应用。
+3. 在 Android 系统设置授予 RingMap“通知使用权”。状态页显示“监听已连接”才代表系统已建立真实监听。
+4. 在 Zepp 中安装手表端 RingMap，并保持手机 Zepp App 与手表连接。
+5. Android 导航桥连接到手表端后，手表会自动激活；可从手表首页进入导航或设置。
 
-RingMap：
+### Android 后台保活
 
-- 不申请定位权限
-- 不接入高德/百度地图 SDK
-- 不调用地图、搜索、路线或导航 Web API
-- 不保存 API Key
-- 不上传导航正文或诊断日志
-- 诊断事件仅驻留在当前 Android 进程，默认不记录路名
+1. 打开 Android RingMap 的“设置”。
+2. 点击“增强连接”，根据系统确认“允许电池不限制”。
+3. 点击“后台运行教程”，在系统应用详情中允许自启动和后台运行；不同品牌名称可能不同。
+4. 导航期间不要从最近任务中清理 RingMap。部分系统会将此操作视为强制停止，应用无法自行恢复。
 
-`INTERNET` 权限仅用于手机本机 `127.0.0.1:8886` WebSocket 通信。
+<img src="./docs/images/android-zepp-background-permissions.jpg" alt="Android 后台运行权限示例" width="320">
 
-## 构建与测试
+> [!WARNING]
+> “通知使用权已授权”不等于“系统通知监听已连接”。如果状态页持续显示正在连接，请在 Android 系统设置中关闭再开启 RingMap 的通知使用权，然后回到 RingMap 刷新状态。
 
-### ZeppOS
+### 开始导航
+
+1. 在高德地图或百度地图中开始导航。
+2. 保持地图应用的导航通知可见；RingMap 从系统通知读取当前步骤。
+3. 手表会自动进入导航页，或从首页点击“导航”查看当前有效步骤。
+4. 长时间息屏后唤醒手表，RingMap 会自动请求最新状态；以手机地图界面和道路实际情况为准。
+
+> [!WARNING]
+> RingMap 不是地图、定位、路线规划或道路安全服务。请始终以手机地图应用和真实道路状况为准，骑行时注意安全。
+
+### 隐私与数据
+
+- 不创建账号，不申请定位、通讯录、相机、麦克风、相册或健康数据权限。
+- Android 在用户授予“通知使用权”后，瞬时读取导航通知内容以提取当前动作、距离、道路与来源；通知正文不会写入 RingMap 诊断事件或上传到开发者服务器。
+- 当前导航步骤只在本机 Android、Zepp App-Side 和已连接手表间同步，不上传导航正文、路线、位置或诊断事件。
+- 完整隐私说明见 [PRIVACY.md](./PRIVACY.md)。
+
+## 开发与构建
+
+### 前置条件
+
+- Node.js（建议使用当前维护中的 LTS 版本）
+- Zepp OS 开发环境与 Zeus CLI
+- JDK 17 或更高版本
+- Android SDK（本项目使用 compileSdk 35）
+
+### 安装依赖
 
 ```bash
-cd D:/ring/RingMap
-npm test
+npm install
+```
+
+### 构建安装包
+
+```bash
 npm run release:watch
 ```
 
-`release:watch` 会对 Balance、GTR 4、GTR 4 Limited Edition、Cheetah Pro、Active 2、Active 2 NFC、T-Rex 3 和 T-Rex 3 Pro 逐一执行 `zeus build --target` 与必须的 `zeus prune --ip`。八个设备类型包复用六套资源 target，按设备命名的 `.zab` 位于 `dist/`，构建产物被 Git 忽略。
+构建产物会生成在 `dist/` 目录。发布脚本会为支持设备构建安装包，并生成版本与 SHA-256 清单。
 
-### Android
-
-仓库内 Android 镜像位于 `android/`：
+Android 配套端位于仓库的 `android/` 目录，可使用 Android Studio 或 Gradle 构建：
 
 ```bat
-cd /d D:\ring\RingMap\android
-set JAVA_HOME=D:\moondrop\tools\jdk-21.0.11+10
-set ANDROID_HOME=D:\moondrop\tools\android-sdk
-set ANDROID_SDK_ROOT=D:\moondrop\tools\android-sdk
-gradlew.bat testDebugUnitTest assembleRelease
+cd android
+gradlew.bat clean testDebugUnitTest assembleDebug
 ```
 
-Android 工程使用 Java 17、minSdk 24、targetSdk 35、Material 3 和 Java-WebSocket。
+### 启动 Zeus 预览
 
-## 目录
+```bash
+npm run preview
+```
+
+## 项目结构
 
 ```text
-app.js                 ZeppOS 全局协议 reducer、TTL、路由和 ACK
-app-side/index.js      Android WebSocket 与 MessageBuilder 自恢复中继
-page/                  手表主页、导航、主题、设置、关于
-shared/                消息、协议和振动纯函数
-assets/<target>/       各设备原生运行资源
-android/               Android 配套端源码镜像
-tests/                 Node 协议、资源和产品契约测试
-docs/                  协议、设计和预览
+app.js                 # 手表端全局状态、连接握手、TTL、路由和确认消息
+app-side/index.js      # Android WebSocket 与手表消息中继
+page/                  # 手表主页、激活、导航、主题、设置、关于
+shared/                # 消息、协议和震动纯逻辑
+assets/<target>/       # 各设备原生资源及下载二维码
+android/               # 可直接构建的 Android 配套端源码
+scripts/               # Android 同步、多目标构建和市场素材辅助脚本
+tests/                 # Node 协议、资源、产品和镜像契约测试
+docs/                  # 协议、设计、截图和市场提交材料
 ```
 
-## 第三方资源
+## 验证
 
-部分导航箭头来自 Icons8，并保留其原始颜色。缺失动作与“夜骑路廊”背景为 RingMap 原创。完整说明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+```bash
+npm test
+npm run build
+```
+
+发版前还应执行 Android 单元测试、Debug 构建、ZeppOS 多目标构建、Android 源码镜像一致性和发布清单检查。详细协议说明见 [docs/PROTOCOL_V2.md](./docs/PROTOCOL_V2.md)。
+
+## 开源协议
+
+本项目采用 [MIT License](./LICENSE) 开源。你可以在保留版权与许可声明的前提下使用、修改、分发或商用本项目。

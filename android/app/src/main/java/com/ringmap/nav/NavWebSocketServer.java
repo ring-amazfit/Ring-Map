@@ -23,7 +23,10 @@ public class NavWebSocketServer extends WebSocketServer {
     public NavWebSocketServer(InetSocketAddress address) {
         super(address);
         setReuseAddr(true);
-        setConnectionLostTimeout(15);
+        // ZeppOS intentionally suspends App-Side while the watch sleeps. The
+        // App-Side application heartbeat owns recovery after wake; server-side
+        // ping eviction would otherwise create a stale reconnect storm.
+        setConnectionLostTimeout(0);
     }
 
     @Override
@@ -38,7 +41,7 @@ public class NavWebSocketServer extends WebSocketServer {
                 + ", clients=" + clients.size());
         NavStateRepository.get().setClientCount(clients.size());
         connection.send(NavProtocol.bridgeState("connected", clients.size()).toString());
-        sendCurrentState(connection);
+        sendCurrentState(connection, "", 0L, 0L);
     }
 
     @Override
@@ -51,7 +54,8 @@ public class NavWebSocketServer extends WebSocketServer {
 
     @Override
     public void onMessage(WebSocket connection, String message) {
-        lastClientActivityAt = System.currentTimeMillis();
+        long receivedAt = System.currentTimeMillis();
+        lastClientActivityAt = receivedAt;
         try {
             JSONObject packet = new JSONObject(message == null ? "" : message);
             if (packet.optInt("protocolVersion", 0) != NavProtocol.VERSION) {
@@ -59,15 +63,22 @@ public class NavWebSocketServer extends WebSocketServer {
                 return;
             }
             String type = packet.optString("type", "");
+            String recoveryId = packet.optString("recoveryId", "");
             if ("hello".equals(type) || "resync".equals(type)) {
-                sendCurrentState(connection);
+                Log.i(TAG, "Authority request: type=" + type + ", recovery=" + recoveryId
+                        + ", seq=" + packet.optLong("seq"));
+                sendCurrentState(connection, recoveryId, packet.optLong("watchReadyAt", 0L), receivedAt);
             } else if ("ping".equals(type)) {
                 connection.send(NavProtocol.pong(packet.optLong("emittedAt", 0L)).toString());
             } else if ("nav_ack".equals(type)) {
                 if (LastNavCache.setWatchAck(packet)) {
-                    Log.i(TAG, "Watch ACK: session=" + packet.optString("sessionId")
+                    Log.i(TAG, "Watch ACK: recovery=" + recoveryId
+                            + ", session=" + packet.optString("sessionId")
                             + ", seq=" + packet.optLong("seq")
-                            + ", status=" + packet.optString("status"));
+                            + ", status=" + packet.optString("status")
+                            + ", watchReadyAt=" + packet.optLong("watchReadyAt", 0L)
+                            + ", watchReceivedAt=" + packet.optLong("watchReceivedAt", 0L)
+                            + ", widgetAppliedAt=" + packet.optLong("widgetAppliedAt", 0L));
                 } else {
                     Log.d(TAG, "Ignored stale watch ACK");
                 }
@@ -77,12 +88,27 @@ public class NavWebSocketServer extends WebSocketServer {
         }
     }
 
-    private void sendCurrentState(WebSocket connection) {
+    private void sendCurrentState(WebSocket connection, String recoveryId,
+                                  long watchReadyAt, long androidResyncReceivedAt) {
+        long androidResyncSentAt = System.currentTimeMillis();
         JSONObject current = LastNavCache.getFresh();
-        if (current != null) {
-            connection.send(current.toString());
-        } else {
-            connection.send(NavProtocol.idle().toString());
+        try {
+            JSONObject response = current == null
+                    ? NavProtocol.idle()
+                    : new JSONObject(current.toString());
+            if (recoveryId != null && !recoveryId.isEmpty()) {
+                response.put("recoveryId", recoveryId);
+                response.put("watchReadyAt", watchReadyAt);
+                response.put("androidResyncReceivedAt", androidResyncReceivedAt);
+                response.put("androidResyncSentAt", androidResyncSentAt);
+            }
+            connection.send(response.toString());
+            Log.i(TAG, "Authority response: recovery=" + recoveryId
+                    + ", state=" + response.optString("type")
+                    + ", seq=" + response.optLong("seq")
+                    + ", fresh=" + (current != null));
+        } catch (Exception e) {
+            Log.w(TAG, "Cannot encode authority response", e);
         }
     }
 
@@ -105,6 +131,10 @@ public class NavWebSocketServer extends WebSocketServer {
     @Override
     public void broadcast(String data) {
         lastClientActivityAt = System.currentTimeMillis();
+        for (WebSocket connection : clients) {
+            if (connection == null || !connection.isOpen()) clients.remove(connection);
+        }
+        NavStateRepository.get().setClientCount(clients.size());
         super.broadcast(data);
     }
 

@@ -25,6 +25,7 @@ public final class NavStateRepository {
     private boolean listenerConnected;
     private String listenerState = "未连接";
     private boolean serviceRunning;
+    private boolean foregroundServiceRunning;
     private String serviceState = "未运行";
     private String serviceError = "";
     private int clientCount;
@@ -82,6 +83,14 @@ public final class NavStateRepository {
         publishLocked();
     }
 
+    public synchronized void setForegroundServiceRunning(boolean running) {
+        if (foregroundServiceRunning != running) {
+            foregroundServiceRunning = running;
+            addEventLocked("服务", running ? "前台保活服务正在运行" : "前台保活服务已停止");
+        }
+        publishLocked();
+    }
+
     public synchronized void setClientCount(int count) {
         int normalized = Math.max(0, count);
         if (clientCount != normalized) {
@@ -107,12 +116,7 @@ public final class NavStateRepository {
         if (snapshot != null) {
             if (previousSeq != snapshot.optLong("seq", -1L)
                     || !previousSession.equals(snapshot.optString("sessionId", ""))) {
-                ackStatus = "";
-                bridgeReceivedAt = 0L;
-                bridgeSentAt = 0L;
-                watchReceivedAt = 0L;
-                watchAppliedAt = 0L;
-                ackRoundTripMs = -1L;
+                clearWatchAckLocked();
             }
             addEventLocked("解析", "动作 " + snapshot.optString("action", "wait")
                     + " · 序号 " + snapshot.optLong("seq", 0L));
@@ -122,6 +126,7 @@ public final class NavStateRepository {
 
     public synchronized void onNavigationEnded(JSONObject end) {
         navigation = null;
+        clearWatchAckLocked();
         String suffix = end == null ? "" : " · 序号 " + end.optLong("seq", 0L);
         addEventLocked("导航", "会话已结束" + suffix);
         publishLocked();
@@ -159,7 +164,7 @@ public final class NavStateRepository {
     public synchronized String diagnosticsText() {
         NavUiState snapshot = buildLocked();
         StringBuilder output = new StringBuilder();
-        output.append("RingMap Android 3.0.1\n")
+        output.append("RingMap Android ").append(BuildConfig.VERSION_NAME).append('\n')
                 .append("通知权限: ").append(snapshot.notificationAccess).append('\n')
                 .append("监听连接: ").append(snapshot.listenerConnected).append('\n')
                 .append("服务状态: ").append(snapshot.serviceState).append('\n')
@@ -175,6 +180,16 @@ public final class NavStateRepository {
                     .append(event.category).append(" · ").append(event.message).append('\n');
         }
         return output.toString();
+    }
+
+    private void clearWatchAckLocked() {
+        lastAckAt = 0L;
+        ackStatus = "";
+        bridgeReceivedAt = 0L;
+        bridgeSentAt = 0L;
+        watchReceivedAt = 0L;
+        watchAppliedAt = 0L;
+        ackRoundTripMs = -1L;
     }
 
     private void addEventLocked(String category, String message) {
@@ -196,6 +211,7 @@ public final class NavStateRepository {
                 .listenerConnected(listenerConnected)
                 .listenerState(listenerState)
                 .serviceRunning(serviceRunning)
+                .foregroundServiceRunning(foregroundServiceRunning)
                 .serviceState(serviceState)
                 .serviceError(serviceError)
                 .clientCount(clientCount)

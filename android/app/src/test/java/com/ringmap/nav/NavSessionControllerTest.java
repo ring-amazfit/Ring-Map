@@ -211,6 +211,25 @@ public class NavSessionControllerTest {
     }
 
     @Test
+    public void acceptsBaiduContentProgressWithSameKeyAndPostTime() {
+        NavSessionController controller = controller();
+
+        NavSessionController.Decision first = controller.accept(
+                "com.baidu.BaiduMap", "baidu-nav-key",
+                instruction("前方300米右转进入中山路", "turn_right", 300, "中山路"),
+                1000L, 1010L, 1020L, 1030L);
+        NavSessionController.Decision update = controller.accept(
+                "com.baidu.BaiduMap", "baidu-nav-key",
+                instruction("前方100米右转进入中山路", "turn_right", 100, "中山路"),
+                1000L, 1040L, 1050L, 1060L);
+
+        assertTrue(first.accepted);
+        assertTrue(update.accepted);
+        assertEquals(2L, update.seq);
+        assertEquals("baidu-nav-key", controller.getActiveNotificationKey());
+    }
+
+    @Test
     public void sameSourceStartsNewSessionAfterLongSilence() {
         NavSessionController controller = controller();
         NavSessionController.Decision first = controller.accept(

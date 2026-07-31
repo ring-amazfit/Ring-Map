@@ -20,7 +20,7 @@ let builderInstance
 class FakeMessageBuilder {
   constructor() { this.handlers = {}; builderInstance = this }
   on(type, callback) { this.handlers[type] = callback }
-  connect(callback) { callback() }
+  connect() {}
   call() {}
   buf2Json(value) { return value }
   disConnect() {}
@@ -45,6 +45,8 @@ var localStorage=globalThis.__storage;
 var push=globalThis.__push;
 var vibrate=function(){};
 var getHapticMode=function(){return 'off'};
+var isWatchActivated=function(){return false};
+var markWatchActivated=function(){};
 var ble={};
 ` + code
 const context = {

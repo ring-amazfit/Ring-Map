@@ -72,6 +72,7 @@ public final class NavProtocol {
         try {
             JSONObject data = base("bridge_state");
             data.put("status", status == null ? "unknown" : status);
+            data.put("bridgeOrigin", "android");
             data.put("clientCount", clientCount);
             data.put("emittedAt", System.currentTimeMillis());
             return data;

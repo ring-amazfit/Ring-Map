@@ -48,12 +48,18 @@ Page({
     createWidget(widget.BUTTON, {
       x: px(72), y: px(386), w: px(150), h: px(44), radius: px(8),
       text_size: px(15), color: TEXT, normal_color: PANEL, press_color: PRESS,
-      text: '导航', click_func: function() { push({ url: 'page/navigation', anim: true }) }
+      text: '导航', click_func: function() {
+        var appData = getApp()._options.globalData
+        push({ url: appData.watchActivated ? 'page/navigation' : 'page/activation', anim: true })
+      }
     })
     createWidget(widget.BUTTON, {
       x: px(258), y: px(386), w: px(150), h: px(44), radius: px(8),
       text_size: px(15), color: TEXT, normal_color: PANEL, press_color: PRESS,
-      text: '设置', click_func: function() { push({ url: 'page/settings', anim: true }) }
+      text: '设置', click_func: function() {
+        var appData = getApp()._options.globalData
+        push({ url: appData.watchActivated ? 'page/settings' : 'page/activation', anim: true })
+      }
     })
 
     var appData = getApp()._options.globalData
@@ -96,7 +102,16 @@ Page({
   },
 
   renderState(nav, navState) {
-    var state = navState || getApp()._options.globalData.navState || { status: 'idle', bridgeStatus: 'disconnected' }
+    var appData = getApp()._options.globalData
+    var state = navState || appData.navState || { status: 'idle', bridgeStatus: 'disconnected' }
+    if (!appData.watchActivated) {
+      this.state.status.setProperty(prop.MORE, { text: '需要激活', color: CYAN })
+      this.state.distance.setProperty(prop.MORE, { text: '' })
+      this.state.action.setProperty(prop.MORE, { text: '连接手机后激活', color: TEXT })
+      this.state.detail.setProperty(prop.MORE, { text: '点击导航，扫码下载 Android 配套端', color: SUB })
+      this.renderIcon('wait')
+      return
+    }
     if (nav && state.status === 'active') {
       var type = actionIcon(nav.action)
       this.state.status.setProperty(prop.MORE, {

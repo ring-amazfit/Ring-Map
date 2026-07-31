@@ -6,12 +6,14 @@ import android.content.ClipboardManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.service.notification.NotificationListenerService;
 import android.view.View;
@@ -19,6 +21,7 @@ import android.view.ViewGroup;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -46,6 +49,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String STATE_ROOT_INDEX = "root_destination_index";
     private static final String DETAIL_BACK_STACK = "detail";
     private static final long ROOT_MOTION_DURATION_MS = 180L;
+    private static final int REQUEST_POST_NOTIFICATIONS = 4101;
     private static final String[] ROOT_TAGS = {
             "root:status", "root:navigation", "root:diagnostics", "root:settings"
     };
@@ -73,6 +77,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
         setupInsets();
         setupNavigation(savedInstanceState);
+        requestNotificationsPermissionIfNeeded();
         refreshInfrastructure();
     }
 
@@ -299,7 +304,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public boolean isNotificationAccessGranted() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null && manager.isNotificationListenerAccessGranted(
                     new ComponentName(this, NavNotificationListener.class))) return true;
@@ -307,6 +312,17 @@ public class MainActivity extends AppCompatActivity {
         String enabled = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
         return NotificationAccess.isEnabled(enabled, NAV_LISTENER_PKG,
                 "com.ringmap.nav.NavNotificationListener");
+    }
+
+    private void requestNotificationsPermissionIfNeeded() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU
+                || ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        ActivityCompat.requestPermissions(this,
+                new String[] { android.Manifest.permission.POST_NOTIFICATIONS },
+                REQUEST_POST_NOTIFICATIONS);
     }
 
     public void requestListenerRebind() {
@@ -341,6 +357,45 @@ public class MainActivity extends AppCompatActivity {
             fallback.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
             startActivity(fallback);
         }
+    }
+
+    /** 请求官方电池优化白名单；用户拒绝时仍可通过系统应用详情页自行设置。 */
+    public void requestIgnoreBatteryOptimizations() {
+        if (isIgnoringBatteryOptimizations()) {
+            showToast("已允许 RingMap 不受电池优化限制");
+            return;
+        }
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(intent);
+        } catch (Exception error) {
+            openBackgroundSettings();
+        }
+    }
+
+    public boolean isIgnoringBatteryOptimizations() {
+        PowerManager manager = (PowerManager) getSystemService(POWER_SERVICE);
+        return manager != null && manager.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    public void showConnectionProtection() {
+        String state = isIgnoringBatteryOptimizations() ? "已允许不受电池优化限制"
+                : "未设置电池不限制";
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("增强连接")
+                .setMessage("当前状态：" + state + "\n\n"
+                        + "RingMap 会保持前台同步服务，并在监听断开时请求系统重绑。"
+                        + "为降低 HyperOS 清理后台后的中断，请允许电池不限制、在系统中开启自启动和后台运行，"
+                        + "且不要从最近任务中清理 RingMap。\n\n"
+                        + "系统强制停止（例如 HyperOS SwipeUpClean）会终止应用、前台服务和通知监听，"
+                        + "普通应用无法自行恢复，需重新打开 RingMap。")
+                .setNegativeButton("系统后台设置", (dialog, which) -> openBackgroundSettings())
+                .setPositiveButton(isIgnoringBatteryOptimizations() ? "知道了" : "允许电池不限制",
+                        (dialog, which) -> {
+                            if (!isIgnoringBatteryOptimizations()) requestIgnoreBatteryOptimizations();
+                        })
+                .show();
     }
 
     public void openBackgroundSettings() {

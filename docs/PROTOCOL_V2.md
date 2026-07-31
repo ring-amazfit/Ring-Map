@@ -74,7 +74,7 @@ IDLE -> ACTIVE(sessionId, seq) -> STALE -> ENDED(tombstone) -> IDLE
 
 ## Connection recovery
 
-Each Zepp App-Side context allows one WebSocket and one reconnect timer. Every socket callback captures a connection epoch; callbacks from replaced sockets in that context are ignored. Reconnect delays are 1, 2, 4, 8, then 15 seconds with bounded jitter.
+Each Zepp App-Side context allows one WebSocket and one reconnect timer. Every socket callback captures a connection epoch; callbacks from replaced sockets in that context are ignored. Reconnect delays are 1, 2, 4, 8, then 15 seconds with bounded jitter. While a watch is asleep, ZeppOS may suspend App-Side heartbeats; Android therefore does not use a server-side ping eviction timer. The Device App sends `watch_sleep` before teardown; App-Side then retains only the latest authority snapshot and does not enqueue its periodic refreshes across the phone-watch transport. On wake, `watch_ready` / `resync` immediately delivers that single latest snapshot and requests current authority state.
 
 Zepp may run multiple legitimate companion contexts at once. Android accepts those localhost clients concurrently instead of letting them evict one another. On open or `hello/resync`, Android sends only the current fresh authority state.
 

@@ -9,6 +9,8 @@ var WS_URL = 'ws://127.0.0.1:8886'
 var RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 15000]
 var HEARTBEAT_INTERVAL_MS = 10000
 var PONG_TIMEOUT_MS = 15000
+var WAKE_RESYNC_TIMEOUT_MS = 1500
+var WATCH_SNAPSHOT_COALESCE_MS = 80
 var MIN_CACHE_REPLAY_MS = 5000
 var NAV_CACHE_KEY = '_rm_nav_packet'
 var NAV_CACHE_AT_KEY = '_rm_nav_packet_at'
@@ -26,9 +28,18 @@ var lastPingAt = 0
 var lastPongAt = 0
 var resyncPending = false
 var messageBridgeInitialized = false
+var watchActive = false
+var watchActivityKnown = false
+var activeRecoveryId = ''
+var activeWatchReadyAt = 0
 var lastStoredStatus = ''
 var lastStoredMessage = ''
 var messageQueue = Promise.resolve()
+var pendingWatchSnapshot = false
+var watchSnapshotTimer = null
+var wakeResyncTimer = null
+var wakeRecovery = null
+var authorityResponseRevision = 0
 
 function getSettingsStorage() {
   try {
@@ -89,11 +100,134 @@ var currentBridgeId = bridgeId()
 function sendToWatchPacket(packet) {
   if (!packet) return
   try {
-    packet.bridgeSentAt = Date.now()
-    messageBuilder.call(packet)
+    var sentAt = Date.now()
+    packet.bridgeSentAt = sentAt
+    packet.appSideWatchSentAt = sentAt
+    var delivery = messageBuilder.call(packet)
+    if (delivery && typeof delivery.catch === 'function') {
+      delivery.catch(function(error) {
+        console.log('RingMap: watch message failed', error)
+      })
+    }
   } catch (e) {
     console.log('RingMap: watch message failed', e)
   }
+}
+
+function cancelPendingWatchSnapshot() {
+  pendingWatchSnapshot = false
+  if (watchSnapshotTimer !== null) {
+    clearTimeout(watchSnapshotTimer)
+    watchSnapshotTimer = null
+  }
+}
+
+function cancelWakeResyncTimeout() {
+  if (wakeResyncTimer !== null) {
+    clearTimeout(wakeResyncTimer)
+    wakeResyncTimer = null
+  }
+}
+
+function recoveryMatches(packet, recovery) {
+  return !!packet && !!recovery
+    && String(packet.recoveryId || '') === recovery.recoveryId
+    && Number(packet.watchReadyAt || 0) === recovery.watchReadyAt
+}
+
+function markAuthorityResponse(packet) {
+  if (!recoveryMatches(packet, wakeRecovery)) return false
+  authorityResponseRevision++
+  wakeRecovery = null
+  cancelWakeResyncTimeout()
+  return true
+}
+
+function scheduleWakeRecoveryTimeout(recovery) {
+  cancelWakeResyncTimeout()
+  wakeResyncTimer = setTimeout(function() {
+    wakeResyncTimer = null
+    if (destroyed || wakeRecovery !== recovery || connectionState !== 'open'
+        || connectionEpoch !== recovery.connectionEpoch
+        || authorityResponseRevision !== recovery.responseRevision) return
+    resyncPending = true
+    reconnectNow('唤醒后未收到 Android 状态，正在重连')
+  }, WAKE_RESYNC_TIMEOUT_MS)
+}
+
+function dispatchWakeRecovery(reason) {
+  var recovery = wakeRecovery
+  if (!recovery || connectionState !== 'open') return false
+  recovery.connectionEpoch = connectionEpoch
+  recovery.responseRevision = authorityResponseRevision
+  var sent = requestLatest(reason || 'app_side_run', recovery)
+  if (!sent) return false
+  resyncPending = false
+  scheduleWakeRecoveryTimeout(recovery)
+  return true
+}
+
+function beginWakeRecovery(sourcePacket, reason) {
+  cancelWakeResyncTimeout()
+  // watch_sleep is the only authoritative inactive signal. onRun may race a
+  // fresh watch_ready packet, so it must not suppress the next live snapshot.
+  var now = Date.now()
+  var recoveryId = String(sourcePacket && sourcePacket.recoveryId
+    || ('app-side-wake-' + now + '-' + Math.floor(Math.random() * 1000000)))
+  var watchReadyAt = Number(sourcePacket && sourcePacket.watchReadyAt || now)
+  activeRecoveryId = recoveryId
+  activeWatchReadyAt = watchReadyAt
+  wakeRecovery = {
+    recoveryId: recoveryId,
+    watchReadyAt: watchReadyAt,
+    connectionEpoch: connectionEpoch,
+    responseRevision: authorityResponseRevision
+  }
+  resyncPending = true
+  if (connectionState !== 'open') {
+    connectWebSocket()
+    return
+  }
+  dispatchWakeRecovery(reason || 'app_side_run')
+}
+
+function flushWatchSnapshot() {
+  watchSnapshotTimer = null
+  if (!pendingWatchSnapshot) return
+  pendingWatchSnapshot = false
+  var packet = cachedNavigationForWatch(1000)
+  if (!packet) {
+    clearCachedNavigation()
+    requestLatest('expired_snapshot')
+    return
+  }
+  sendToWatchPacket(packet)
+}
+
+function queueWatchSnapshot() {
+  pendingWatchSnapshot = true
+  // Older ZeppOS builds do not emit lifecycle notices. Preserve their initial
+  // real-time delivery, but once the watch has declared sleep, cache only latest.
+  if ((watchActivityKnown && !watchActive) || watchSnapshotTimer !== null) return
+  watchSnapshotTimer = setTimeout(flushWatchSnapshot, WATCH_SNAPSHOT_COALESCE_MS)
+}
+
+function sleepMatchesActiveGeneration(packet) {
+  if (!watchActivityKnown) return true
+  if (!activeRecoveryId && !activeWatchReadyAt) return true
+  return !!packet
+    && String(packet.recoveryId || '') === activeRecoveryId
+    && Number(packet.watchReadyAt || 0) === activeWatchReadyAt
+}
+
+function setWatchActive(active) {
+  var hadPendingSnapshot = pendingWatchSnapshot
+  watchActivityKnown = true
+  watchActive = !!active
+  if (watchActive && hadPendingSnapshot && watchSnapshotTimer === null) {
+    flushWatchSnapshot()
+  }
+  return hadPendingSnapshot
 }
 
 function sendBridgeState(status, message) {
@@ -103,6 +237,7 @@ function sendBridgeState(status, message) {
     status: status,
     message: message || '',
     bridgeId: currentBridgeId,
+    bridgeOrigin: 'app_side',
     emittedAt: Date.now()
   })
 }
@@ -125,6 +260,8 @@ function requestLatest(reason, sourcePacket) {
     protocolVersion: 2,
     type: 'resync',
     bridgeId: currentBridgeId,
+    recoveryId: sourcePacket && sourcePacket.recoveryId || activeRecoveryId || '',
+    watchReadyAt: Number(sourcePacket && sourcePacket.watchReadyAt || activeWatchReadyAt || 0),
     reason: reason || 'watch_request',
     sessionId: sourcePacket && sourcePacket.sessionId || current.sessionId || '',
     seq: sourcePacket && sourcePacket.seq || current.seq || 0,
@@ -136,7 +273,7 @@ function requestLatest(reason, sourcePacket) {
 
 function snapshotTtl(packet) {
   var ttl = Number(packet && packet.ttlMs || 45000)
-  return Math.max(5000, Math.min(120000, ttl))
+  return Math.max(1000, Math.min(120000, ttl))
 }
 
 function cachedNavigationRemainingMs() {
@@ -206,32 +343,39 @@ function clearCachedNavigation() {
 function handleProtocolPacket(packet) {
   if (!packet || typeof packet !== 'object') return
   packet.bridgeReceivedAt = Date.now()
+  packet.appSideReceivedAt = packet.bridgeReceivedAt
 
   if (packet.type === 'nav_snapshot') {
+    markAuthorityResponse(packet)
     packet.sourceName = packet.sourceName || sourceLabel(packet)
-    lastNavData = packet
-    lastNavDataAt = Date.now()
+    rememberNavigation(packet)
     var watchPacket = cachedNavigationForWatch(1000)
     if (!watchPacket) {
       clearCachedNavigation()
       requestLatest('expired_snapshot')
       return
     }
-    // 控件更新优先于缓存落盘，避免同步存储拖慢骑行提示。
-    sendToWatchPacket(watchPacket)
-    rememberNavigation(packet)
+    // A short coalescing window prevents a suspended phone-watch transport
+    // from replaying every queued Android refresh after the watch wakes.
+    queueWatchSnapshot()
     setStatus('navigating', '导航数据已同步')
     return
   }
 
   if (packet.type === 'nav_end') {
-    if (!lastNavData || lastNavData.sessionId === packet.sessionId) clearCachedNavigation()
+    markAuthorityResponse(packet)
+    if (!lastNavData || lastNavData.sessionId === packet.sessionId) {
+      cancelPendingWatchSnapshot()
+      clearCachedNavigation()
+    }
     setStatus('idle', '导航已结束')
     sendToWatchPacket(packet)
     return
   }
 
   if (packet.type === 'idle') {
+    markAuthorityResponse(packet)
+    cancelPendingWatchSnapshot()
     clearCachedNavigation()
     setStatus('idle', '等待系统导航')
     sendToWatchPacket(packet)
@@ -313,6 +457,8 @@ function markDisconnected(epoch, socket, status, message) {
   lastPingAt = 0
   lastPongAt = 0
   cancelHeartbeat()
+  cancelWakeResyncTimeout()
+  if (wakeRecovery) resyncPending = true
   setStatus(status || 'disconnected', message || '连接已断开')
   sendBridgeState(status || 'disconnected', message || '连接已断开')
   try { socket.close() } catch (e) {}
@@ -323,6 +469,7 @@ function reconnectNow(message) {
   if (destroyed) return
   cancelReconnect()
   cancelHeartbeat()
+  cancelWakeResyncTimeout()
   var socket = ws
   connectionEpoch++
   ws = null
@@ -412,7 +559,9 @@ function connectWebSocket() {
       seq: lastNavData && lastNavData.seq || 0,
       emittedAt: Date.now()
     })
-    if (resyncPending) {
+    if (wakeRecovery) {
+      dispatchWakeRecovery('pending_recovery')
+    } else if (resyncPending) {
       resyncPending = false
       requestLatest('pending_recovery')
     }
@@ -440,10 +589,20 @@ function connectWebSocket() {
 
 function forwardDevicePacket(packet) {
   if (!packet) return
+  if (packet.type === 'watch_sleep') {
+    if (sleepMatchesActiveGeneration(packet)) setWatchActive(false)
+    return
+  }
   if (packet.type === 'watch_ready' || packet.type === 'resync') {
+    activeRecoveryId = String(packet.recoveryId || activeRecoveryId)
+    activeWatchReadyAt = Number(packet.watchReadyAt || activeWatchReadyAt || Date.now())
+    var deliveredPendingSnapshot = setWatchActive(true)
+    if (connectionState === 'open') {
+      sendBridgeState('connected', 'Android 导航桥在线')
+    }
     var cachedPacket = cachedNavigationForWatch()
-    if (cachedPacket) sendToWatchPacket(cachedPacket)
-    requestLatest(packet.type, packet)
+    if (!deliveredPendingSnapshot && cachedPacket) sendToWatchPacket(cachedPacket)
+    beginWakeRecovery(packet, packet.type)
     return
   }
   if (packet.type === 'nav_ack') {
@@ -477,22 +636,20 @@ AppSideService({
   },
 
   onRun() {
-    if (connectionState === 'open') {
-      if (!lastPongAt || Date.now() - lastPongAt >= HEARTBEAT_INTERVAL_MS) {
-        reconnectNow('手表唤醒，正在确认 Android 导航桥')
-      } else {
-        requestLatest('app_side_run')
-      }
-    } else {
-      connectWebSocket()
-    }
+    beginWakeRecovery()
   },
 
   onDestroy() {
     destroyed = true
+    watchActive = false
+    activeRecoveryId = ''
+    activeWatchReadyAt = 0
+    wakeRecovery = null
     connectionEpoch++
     cancelReconnect()
     cancelHeartbeat()
+    cancelWakeResyncTimeout()
+    cancelPendingWatchSnapshot()
     connectionState = 'disconnected'
     messageQueue = Promise.resolve()
     var socket = ws
