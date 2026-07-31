@@ -35,7 +35,7 @@ public final class SettingsFragment extends Fragment {
         view.findViewById(R.id.rowConnectionProtection)
                 .setOnClickListener(v -> activity.showConnectionProtection());
         view.findViewById(R.id.rowBackgroundAccess)
-                .setOnClickListener(v -> activity.openBackgroundSettings());
+                .setOnClickListener(v -> activity.openAutostartSettings());
         view.findViewById(R.id.rowSources).setOnClickListener(v -> showSources());
         view.findViewById(R.id.rowPrivacy).setOnClickListener(v -> showPrivacy());
         view.findViewById(R.id.rowAbout).setOnClickListener(v -> activity.openAbout());

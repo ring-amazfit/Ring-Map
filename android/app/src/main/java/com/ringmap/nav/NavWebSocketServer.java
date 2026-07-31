@@ -91,11 +91,8 @@ public class NavWebSocketServer extends WebSocketServer {
     private void sendCurrentState(WebSocket connection, String recoveryId,
                                   long watchReadyAt, long androidResyncReceivedAt) {
         long androidResyncSentAt = System.currentTimeMillis();
-        JSONObject current = LastNavCache.getFresh();
+        JSONObject response = LastNavCache.authorityState();
         try {
-            JSONObject response = current == null
-                    ? NavProtocol.idle()
-                    : new JSONObject(current.toString());
             if (recoveryId != null && !recoveryId.isEmpty()) {
                 response.put("recoveryId", recoveryId);
                 response.put("watchReadyAt", watchReadyAt);
@@ -106,7 +103,7 @@ public class NavWebSocketServer extends WebSocketServer {
             Log.i(TAG, "Authority response: recovery=" + recoveryId
                     + ", state=" + response.optString("type")
                     + ", seq=" + response.optLong("seq")
-                    + ", fresh=" + (current != null));
+                    + ", fresh=" + "nav_snapshot".equals(response.optString("type")));
         } catch (Exception e) {
             Log.w(TAG, "Cannot encode authority response", e);
         }

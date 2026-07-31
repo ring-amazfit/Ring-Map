@@ -46,7 +46,7 @@
 
 - First use requires the Android companion and a Zepp connection to the watch. Activation completes only after an actual Android bridge connection reaches the watch.
 - The unactivated watch home and About page provide the Android companion download QR entry.
-- Android companion download: <https://yun.139.com/shareweb/#/w/i/2wFGpV8ee03ge>
+- Android companion download: <https://1822094521.share.123pan.cn/123pan/BvJBjv-BR4Gh>
 
 ## Screenshots
 
@@ -93,7 +93,7 @@
 
 ### Install and activate
 
-1. Scan the watch activation QR or open the [Android companion download link](https://yun.139.com/shareweb/#/w/i/2wFGpV8ee03ge).
+1. Scan the watch activation QR or open the [Android companion download link](https://1822094521.share.123pan.cn/123pan/BvJBjv-BR4Gh).
 2. Install and open RingMap for Android once.
 3. Grant Android Notification Access to RingMap. “Listener connected” in RingMap is the real confirmation that Android has bound the listener.
 4. Install RingMap on the watch through Zepp and keep Zepp connected to the watch.

@@ -23,11 +23,15 @@ public class NavNotificationListener extends NotificationListenerService {
     private static final String TAG = "NavListener";
     private static final long END_VERIFY_DELAY_MS = 1200L;
     private static final long ARRIVAL_END_VERIFY_DELAY_MS = 3500L;
+    static final long ACTIVE_SCAN_INTERVAL_MS = 15_000L;
     private static final long[] REBIND_DELAYS_MS = {3000L, 10000L, 30000L, 60000L};
     private static final NavSessionController SESSION = new NavSessionController();
     private static volatile Handler rebindHandler;
     private static volatile Handler endHandler;
     private static int rebindAttempt;
+
+    private final Handler activeScanHandler = new Handler(Looper.getMainLooper());
+    private long instanceId;
 
     private static Handler rebindHandler() {
         Handler handler = rebindHandler;
@@ -79,6 +83,16 @@ public class NavNotificationListener extends NotificationListenerService {
         rebindHandler().postDelayed(REBIND_TASK, REBIND_DELAYS_MS[0]);
     }
 
+    private final Runnable ACTIVE_SCAN_TASK = new Runnable() {
+        @Override public void run() {
+            if (instanceId <= 0L || !LastNavCache.isListenerConnected()) return;
+            scanActiveNotifications(false);
+            if (instanceId > 0L && LastNavCache.isListenerConnected()) {
+                activeScanHandler.postDelayed(this, ACTIVE_SCAN_INTERVAL_MS);
+            }
+        }
+    };
+
     private static final String[] SUPPORTED_NAV_PACKAGES = {
             "com.autonavi.minimap",
             "com.baidu.BaiduMap"
@@ -96,30 +110,27 @@ public class NavNotificationListener extends NotificationListenerService {
     public void onListenerConnected() {
         super.onListenerConnected();
         Log.i(TAG, "Notification listener connected");
-        LastNavCache.setListenerConnected(true, "已连接");
+        instanceId = LastNavCache.listenerConnected("已连接");
         LastNavCache.setDebug("[监听已连接] 正在扫描地图导航通知");
         rebindHandler().removeCallbacks(REBIND_TASK);
         rebindAttempt = 0;
         NavBridgeRuntime.ensureStarted(getApplicationContext());
-
-        try {
-            StatusBarNotification[] active = getActiveNotifications();
-            if (active != null) {
-                Arrays.sort(active, Comparator.comparingLong(item ->
-                        item == null ? Long.MIN_VALUE : item.getPostTime()));
-                for (StatusBarNotification item : active) handleNotification(item);
-            }
-        } catch (SecurityException e) {
-            Log.w(TAG, "Cannot scan active notifications", e);
-            LastNavCache.setDebug("[监听已连接] 无法读取现有通知，请重新授权");
+        scanActiveNotifications(true);
+        activeScanHandler.removeCallbacks(ACTIVE_SCAN_TASK);
+        if (instanceId > 0L && LastNavCache.isListenerConnected()) {
+            activeScanHandler.postDelayed(ACTIVE_SCAN_TASK, ACTIVE_SCAN_INTERVAL_MS);
         }
     }
 
     @Override
     public void onDestroy() {
-        LastNavCache.setListenerConnected(false, "已断开");
-        LastNavCache.setDebug("[监听已销毁] 正在自动恢复");
-        scheduleRebind();
+        activeScanHandler.removeCallbacks(ACTIVE_SCAN_TASK);
+        boolean current = LastNavCache.listenerDisconnected(instanceId, "已断开");
+        instanceId = 0L;
+        if (current || !LastNavCache.isListenerConnected()) {
+            LastNavCache.setDebug("[监听已销毁] 正在自动恢复");
+            scheduleRebind();
+        }
         super.onDestroy();
     }
 
@@ -127,9 +138,33 @@ public class NavNotificationListener extends NotificationListenerService {
     public void onListenerDisconnected() {
         super.onListenerDisconnected();
         Log.i(TAG, "Notification listener disconnected");
-        LastNavCache.setListenerConnected(false, "已断开");
-        LastNavCache.setDebug("[监听已断开] 正在自动恢复");
-        scheduleRebind();
+        activeScanHandler.removeCallbacks(ACTIVE_SCAN_TASK);
+        boolean current = LastNavCache.listenerDisconnected(instanceId, "已断开");
+        instanceId = 0L;
+        if (current || !LastNavCache.isListenerConnected()) {
+            LastNavCache.setDebug("[监听已断开] 正在自动恢复");
+            scheduleRebind();
+        }
+    }
+
+    private void scanActiveNotifications(boolean reportFailure) {
+        try {
+            StatusBarNotification[] active = getActiveNotifications();
+            if (active == null) return;
+            Arrays.sort(active, Comparator.comparingLong(item ->
+                    item == null ? Long.MIN_VALUE : item.getPostTime()));
+            for (StatusBarNotification item : active) handleNotification(item);
+        } catch (SecurityException | IllegalStateException error) {
+            Log.w(TAG, "Cannot scan active notifications", error);
+            if (reportFailure) {
+                LastNavCache.setDebug("[监听异常] 系统拒绝读取通知，正在自动重绑");
+            }
+            activeScanHandler.removeCallbacks(ACTIVE_SCAN_TASK);
+            if (LastNavCache.listenerDisconnected(instanceId, "系统拒绝读取")) {
+                instanceId = 0L;
+                scheduleRebind();
+            }
+        }
     }
 
     @Override
@@ -141,10 +176,9 @@ public class NavNotificationListener extends NotificationListenerService {
     public void onNotificationRemoved(StatusBarNotification sbn) {
         if (sbn == null || !isSupportedNavigationPackage(sbn.getPackageName())) return;
         String activeSource = SESSION.getActiveSource();
-        String activeKey = SESSION.getActiveNotificationKey();
-        if (!SESSION.isActive() || !sbn.getPackageName().equals(activeSource)
-                || !sbn.getKey().equals(activeKey)) return;
+        if (!SESSION.isActive() || !sbn.getPackageName().equals(activeSource)) return;
 
+        String expectedSessionId = SESSION.getSessionId();
         long expectedSeq = SESSION.getSeq();
         long delay = END_VERIFY_DELAY_MS;
         JSONObject current = LastNavCache.get();
@@ -153,14 +187,14 @@ public class NavNotificationListener extends NotificationListenerService {
         }
         endHandler().removeCallbacksAndMessages(null);
         endHandler().postDelayed(
-                () -> verifyNavigationEnded(activeSource, activeKey, expectedSeq), delay);
+                () -> verifyNavigationEnded(activeSource, expectedSessionId, expectedSeq), delay);
     }
 
-    private void verifyNavigationEnded(String expectedSource, String expectedKey,
+    private void verifyNavigationEnded(String expectedSource, String expectedSessionId,
                                        long expectedSeq) {
         if (!SESSION.isActive()
                 || !expectedSource.equals(SESSION.getActiveSource())
-                || !expectedKey.equals(SESSION.getActiveNotificationKey())
+                || !expectedSessionId.equals(SESSION.getSessionId())
                 || expectedSeq != SESSION.getSeq()) {
             Log.d(TAG, "Navigation advanced after notification removal; ignore old end check");
             return;
@@ -181,7 +215,7 @@ public class NavNotificationListener extends NotificationListenerService {
             Log.w(TAG, "Cannot verify navigation notification removal", e);
             return;
         }
-        if (expectedKey.equals(SESSION.getActiveNotificationKey())
+        if (expectedSessionId.equals(SESSION.getSessionId())
                 && expectedSeq == SESSION.getSeq()) {
             endNavigation(expectedSource, "地图导航通知已全部移除",
                     System.currentTimeMillis());

@@ -10,7 +10,7 @@ public final class LastNavCache {
     private static volatile long sDebugTs;
     private static volatile long sLastNotificationTs;
     private static volatile long sLastParseSuccessTs;
-    private static volatile boolean sListenerConnected;
+    private static final ListenerConnectionState LISTENER = new ListenerConnectionState();
     private static volatile String sListenerState = "未连接";
     private static volatile long sLastWatchAckTs;
     private static volatile String sLastAckSessionId = "";
@@ -23,6 +23,13 @@ public final class LastNavCache {
     private LastNavCache() {}
 
     public static synchronized void set(JSONObject data) {
+        if (data != null) {
+            try {
+                data.put("stateRevision", NavProtocol.nextRevision());
+            } catch (Exception error) {
+                throw new IllegalStateException("Cannot publish navigation revision", error);
+            }
+        }
         sLast = data;
         sLastParseSuccessTs = System.currentTimeMillis();
         NavStateRepository.get().onNavigationSnapshot(data);
@@ -34,6 +41,21 @@ public final class LastNavCache {
     public static synchronized JSONObject getFresh() {
         JSONObject snapshot = sLast;
         return isFreshAt(snapshot, System.currentTimeMillis()) ? snapshot : null;
+    }
+
+    /**
+     * 在同一缓存锁内读取状态并分配 revision，防止旧 idle 在新快照之后取得更高版本号。
+     */
+    public static synchronized JSONObject authorityState() {
+        JSONObject snapshot = sLast;
+        if (isFreshAt(snapshot, System.currentTimeMillis())) {
+            try {
+                return new JSONObject(snapshot.toString());
+            } catch (Exception ignored) {
+                // 快照编码异常时宁可返回新的 idle，也不泄露可变缓存对象。
+            }
+        }
+        return NavProtocol.idle();
     }
 
     static boolean isFreshAt(JSONObject snapshot, long now) {
@@ -52,6 +74,13 @@ public final class LastNavCache {
     }
 
     public static synchronized void clear(JSONObject end) {
+        if (end != null) {
+            try {
+                end.put("stateRevision", NavProtocol.nextRevision());
+            } catch (Exception error) {
+                throw new IllegalStateException("Cannot publish navigation end revision", error);
+            }
+        }
         sLast = null;
         NavStateRepository.get().onNavigationEnded(end);
     }
@@ -116,12 +145,34 @@ public final class LastNavCache {
     public static long getWatchAppliedAt() { return sWatchAppliedAt; }
     public static long getAckRoundTripMs() { return sAckRoundTripMs; }
 
-    public static void setListenerConnected(boolean connected, String state) {
-        sListenerConnected = connected;
+    /** 返回当前连接代际，防止旧 Listener 实例的销毁回调覆盖新连接。 */
+    public static synchronized long listenerConnected(String state) {
+        long generation = LISTENER.connected();
+        updateListenerStateLocked(true, state);
+        return generation;
+    }
+
+    /** 只有当前代际可以把监听标记为断开。 */
+    public static synchronized boolean listenerDisconnected(long generation, String state) {
+        if (!LISTENER.disconnected(generation)) return false;
+        updateListenerStateLocked(false, state);
+        return true;
+    }
+
+    public static synchronized void setListenerConnected(boolean connected, String state) {
+        if (connected) {
+            listenerConnected(state);
+        } else {
+            LISTENER.forceDisconnected();
+            updateListenerStateLocked(false, state);
+        }
+    }
+
+    private static void updateListenerStateLocked(boolean connected, String state) {
         sListenerState = state == null ? (connected ? "已连接" : "已断开") : state;
         NavStateRepository.get().setListenerState(connected, sListenerState);
     }
 
-    public static boolean isListenerConnected() { return sListenerConnected; }
+    public static boolean isListenerConnected() { return LISTENER.isConnected(); }
     public static String getListenerState() { return sListenerState; }
 }

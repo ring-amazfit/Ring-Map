@@ -14,6 +14,7 @@ var WATCH_SNAPSHOT_COALESCE_MS = 80
 var MIN_CACHE_REPLAY_MS = 5000
 var NAV_CACHE_KEY = '_rm_nav_packet'
 var NAV_CACHE_AT_KEY = '_rm_nav_packet_at'
+var AUTHORITY_HEAD_KEY = '_rm_authority_head'
 var messageBuilder = new MessageBuilder()
 var ws = null
 var connectionState = 'disconnected'
@@ -40,6 +41,13 @@ var watchSnapshotTimer = null
 var wakeResyncTimer = null
 var wakeRecovery = null
 var authorityResponseRevision = 0
+var authorityHead = {
+  revision: 0,
+  status: 'idle',
+  sessionId: '',
+  sessionStartedAt: 0,
+  seq: 0
+}
 
 function getSettingsStorage() {
   try {
@@ -319,12 +327,22 @@ function rememberNavigation(packet) {
 function restoreCachedNavigation() {
   var storage = getSettingsStorage()
   try {
+    var rawHead = storage ? storage.getItem(AUTHORITY_HEAD_KEY) : localStorage.getItem(AUTHORITY_HEAD_KEY)
+    if (rawHead) {
+      var restoredHead = JSON.parse(rawHead)
+      authorityHead.revision = Number(restoredHead.revision || 0)
+      authorityHead.status = String(restoredHead.status || 'idle')
+      authorityHead.sessionId = String(restoredHead.sessionId || '')
+      authorityHead.sessionStartedAt = Number(restoredHead.sessionStartedAt || 0)
+      authorityHead.seq = Number(restoredHead.seq || 0)
+    }
     var raw = storage ? storage.getItem(NAV_CACHE_KEY) : localStorage.getItem(NAV_CACHE_KEY)
     var cachedAt = Number(storage ? storage.getItem(NAV_CACHE_AT_KEY) : localStorage.getItem(NAV_CACHE_AT_KEY))
     if (!raw || !cachedAt) return
     var packet = JSON.parse(raw)
     lastNavData = packet
     lastNavDataAt = cachedAt
+    if (!authorityHead.revision) updateAuthorityHead(packet)
     if (!hasFreshCachedNavigation()) clearCachedNavigation()
   } catch (e) {
     clearCachedNavigation()
@@ -340,13 +358,69 @@ function clearCachedNavigation() {
   setStatus('idle', '等待系统导航')
 }
 
+function packetRevision(packet) {
+  return Number(packet && (packet.stateRevision || packet.emittedAt) || 0)
+}
+
+function persistAuthorityHead() {
+  setStorageItem(AUTHORITY_HEAD_KEY, JSON.stringify(authorityHead))
+}
+
+function updateAuthorityHead(packet) {
+  var type = String(packet && packet.type || '')
+  authorityHead.revision = packetRevision(packet)
+  if (type === 'nav_snapshot') {
+    authorityHead.status = 'active'
+    authorityHead.sessionId = String(packet.sessionId || '')
+    authorityHead.sessionStartedAt = Number(packet.sessionStartedAt || packet.emittedAt || 0)
+    authorityHead.seq = Number(packet.seq || 0)
+  } else if (type === 'nav_end') {
+    authorityHead.status = 'ended'
+    authorityHead.seq = Number(packet.seq || authorityHead.seq)
+  } else if (type === 'idle') {
+    authorityHead.status = 'idle'
+  }
+  persistAuthorityHead()
+}
+
+function acceptsAuthorityPacket(packet) {
+  if (!packet || packet.protocolVersion !== 2) return false
+  var type = String(packet.type || '')
+  if (type !== 'nav_snapshot' && type !== 'nav_end' && type !== 'idle') return true
+  var revision = packetRevision(packet)
+  if (revision <= 0 || revision < authorityHead.revision) return false
+
+  if (type === 'nav_snapshot') {
+    var sessionId = String(packet.sessionId || '')
+    var seq = Number(packet.seq || 0)
+    var startedAt = Number(packet.sessionStartedAt || packet.emittedAt || 0)
+    if (!sessionId || seq <= 0 || startedAt <= 0) return false
+    if (authorityHead.sessionId === sessionId && seq <= authorityHead.seq) return false
+    if (revision === authorityHead.revision && authorityHead.sessionId !== sessionId) return false
+    if (authorityHead.sessionId && authorityHead.sessionId !== sessionId
+        && startedAt <= authorityHead.sessionStartedAt) return false
+  } else if (type === 'nav_end') {
+    if (revision === authorityHead.revision) return false
+    if (!authorityHead.sessionId
+        || String(packet.sessionId || '') !== authorityHead.sessionId
+        || Number(packet.seq || 0) < authorityHead.seq) return false
+  } else if (revision === authorityHead.revision) {
+    return false
+  }
+  updateAuthorityHead(packet)
+  return true
+}
+
 function handleProtocolPacket(packet) {
   if (!packet || typeof packet !== 'object') return
   packet.bridgeReceivedAt = Date.now()
   packet.appSideReceivedAt = packet.bridgeReceivedAt
+  if (packet.type === 'nav_snapshot' || packet.type === 'nav_end' || packet.type === 'idle') {
+    markAuthorityResponse(packet)
+    if (!acceptsAuthorityPacket(packet)) return
+  }
 
   if (packet.type === 'nav_snapshot') {
-    markAuthorityResponse(packet)
     packet.sourceName = packet.sourceName || sourceLabel(packet)
     rememberNavigation(packet)
     var watchPacket = cachedNavigationForWatch(1000)
@@ -363,7 +437,6 @@ function handleProtocolPacket(packet) {
   }
 
   if (packet.type === 'nav_end') {
-    markAuthorityResponse(packet)
     if (!lastNavData || lastNavData.sessionId === packet.sessionId) {
       cancelPendingWatchSnapshot()
       clearCachedNavigation()
@@ -374,7 +447,6 @@ function handleProtocolPacket(packet) {
   }
 
   if (packet.type === 'idle') {
-    markAuthorityResponse(packet)
     cancelPendingWatchSnapshot()
     clearCachedNavigation()
     setStatus('idle', '等待系统导航')

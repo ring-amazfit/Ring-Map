@@ -14,6 +14,7 @@ public class NavUiStateTest {
                 .serviceState("运行中")
                 .clientCount(1)
                 .lastAckAt(10_000L)
+                .ackStatus("accepted")
                 .now(20_000L);
     }
 
@@ -38,6 +39,20 @@ public class NavUiStateTest {
         assertEquals(NavUiState.Readiness.READY, readyBase().build().readiness());
         assertEquals(NavUiState.Readiness.NAVIGATING,
                 readyBase().navigating(true).sessionId("session-a").seq(4).build().readiness());
+    }
+
+    @Test
+    public void acknowledgedCurrentSequenceDoesNotExpireLikeAHeartbeat() {
+        NavUiState state = readyBase()
+                .navigating(true)
+                .sessionId("session-a")
+                .seq(4)
+                .ackStatus("applied")
+                .lastAckAt(10_000L)
+                .now(50_001L)
+                .build();
+
+        assertEquals(NavUiState.Readiness.NAVIGATING, state.readiness());
     }
 
     @Test

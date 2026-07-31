@@ -88,6 +88,23 @@ public class NavSessionControllerTest {
     }
 
     @Test
+    public void staleCompleteInstructionAllowsPartialNavigationHeartbeat() {
+        NavSessionController controller = controller();
+        controller.accept(
+                "com.autonavi.minimap", "key-a",
+                instruction("前方200米右转进入中山路", "turn_right", 200, "中山路"),
+                1000L, 1010L, 1020L);
+
+        NavSessionController.Decision partial = controller.accept(
+                "com.autonavi.minimap", "key-banner",
+                instruction("高德地图持续为您导航", "wait", 0, ""),
+                47_000L, 47_010L, 47_020L);
+
+        assertTrue(partial.accepted);
+        assertEquals("partial", partial.quality);
+    }
+
+    @Test
     public void locksSourceUntilCurrentSessionEnds() {
         NavSessionController controller = controller();
         controller.accept(

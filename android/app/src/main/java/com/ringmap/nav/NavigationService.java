@@ -4,14 +4,12 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.service.notification.NotificationListenerService;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -22,8 +20,8 @@ import androidx.core.content.ContextCompat;
  * 前台保活与监听健康检查。
  *
  * 本机 WebSocket 由 {@link NavBridgeRuntime} 持有，而不是由本 Service 独占：
- * Android 15 的 dataSync 前台服务达到时限或被 OEM 回收时，系统通知监听仍可
- * 继续启动并使用本机桥接，用户不需要再次打开手机界面才能恢复导航转发。
+ * 前台服务使用声明明确用途的 specialUse 类型持续维护本机桥；即使服务被 OEM
+ * 回收，系统通知监听回调仍可重新建立桥接，不依赖用户重新打开手机界面。
  */
 public class NavigationService extends Service {
 
@@ -41,14 +39,9 @@ public class NavigationService extends Service {
     private final Runnable listenerHealthCheck = new Runnable() {
         @Override public void run() {
             if (!LastNavCache.isListenerConnected()) {
-                try {
-                    NotificationListenerService.requestRebind(
-                            new ComponentName(NavigationService.this, NavNotificationListener.class));
-                    LastNavCache.setDebug("[后台自检] 正在请求系统重新绑定通知监听");
-                    Log.i(TAG, "Background listener health check requested rebind");
-                } catch (Exception error) {
-                    Log.w(TAG, "Background notification listener rebind failed", error);
-                }
+                NotificationListenerRecovery.request(NavigationService.this, true);
+                LastNavCache.setDebug("[后台自检] 正在恢复系统通知监听");
+                Log.i(TAG, "Background listener health check requested recovery");
             }
             NavBridgeRuntime.ensureStarted(getApplicationContext());
             healthHandler.postDelayed(this, REBIND_INTERVAL_MS);
@@ -90,12 +83,8 @@ public class NavigationService extends Service {
         startForeground(NOTIFICATION_ID, createNotification("后台同步运行中 · 等待导航数据"));
         foregroundStarted = true;
         NavStateRepository.get().setForegroundServiceRunning(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (manager != null && !manager.isNotificationListenerAccessGranted(
-                    new ComponentName(this, NavNotificationListener.class))) {
-                LastNavCache.setDebug("[监听未授权] 请在系统设置授予通知使用权");
-            }
+        if (!NotificationAccess.isGranted(this)) {
+            LastNavCache.setDebug("[监听未授权] 请在系统设置授予通知使用权");
         }
         ensureBridge();
         healthHandler.removeCallbacks(listenerHealthCheck);
@@ -126,21 +115,6 @@ public class NavigationService extends Service {
         super.onTaskRemoved(rootIntent);
     }
 
-    @Override
-    public void onTimeout(int startId, int fgsType) {
-        // Android 15 对 dataSync 有时限。停止受限 FGS，但绝不能同时关闭监听拥有的桥接。
-        Log.w(TAG, "Foreground service timeout, startId=" + startId + ", type=" + fgsType);
-        NavStateRepository.get().record("服务", "前台保活到期，通知桥继续运行");
-        sState = "前台保活到期";
-        foregroundStarted = false;
-        NavStateRepository.get().setForegroundServiceRunning(false);
-        if (NavBridgeRuntime.isRunning()) {
-            NavStateRepository.get().setServiceState(true, getState(), "");
-        }
-        // Android 15 dataSync 时限到达时必须终止该 FGS；桥接仍由通知监听拥有。
-        stopSelf();
-    }
-
     private void ensureBridge() {
         if (NavBridgeRuntime.ensureStarted(getApplicationContext())) {
             sState = "运行中";
@@ -152,12 +126,7 @@ public class NavigationService extends Service {
     }
 
     private void requestListenerRebind() {
-        try {
-            NotificationListenerService.requestRebind(
-                    new ComponentName(this, NavNotificationListener.class));
-        } catch (Exception error) {
-            Log.w(TAG, "Notification listener rebind request failed", error);
-        }
+        NotificationListenerRecovery.request(this);
     }
 
     private Notification createNotification(String text) {

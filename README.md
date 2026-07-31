@@ -46,7 +46,7 @@
 
 - 手表端首次使用需要先安装 Android 配套端，并通过 Zepp 与手机建立连接后自动激活。
 - 未激活时，首页提供 Android 配套端下载二维码；“关于”页面可随时重新查看下载入口。
-- Android 配套端下载：<https://yun.139.com/shareweb/#/w/i/2wFGpV8ee03ge>
+- Android 配套端下载：<https://1822094521.share.123pan.cn/123pan/BvJBjv-BR4Gh>
 
 ## 界面预览
 
@@ -93,7 +93,7 @@
 
 ### 首次安装和激活
 
-1. 使用手表端“连接手机后激活”页面的二维码，或打开 [Android 配套端下载链接](https://yun.139.com/shareweb/#/w/i/2wFGpV8ee03ge)。
+1. 使用手表端“连接手机后激活”页面的二维码，或打开 [Android 配套端下载链接](https://1822094521.share.123pan.cn/123pan/BvJBjv-BR4Gh)。
 2. 安装 Android RingMap，打开一次应用。
 3. 在 Android 系统设置授予 RingMap“通知使用权”。状态页显示“监听已连接”才代表系统已建立真实监听。
 4. 在 Zepp 中安装手表端 RingMap，并保持手机 Zepp App 与手表连接。

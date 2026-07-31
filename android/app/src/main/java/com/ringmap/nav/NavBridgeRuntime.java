@@ -11,8 +11,8 @@ import java.net.InetSocketAddress;
  * 由系统通知监听启动的本机桥接运行时。
  *
  * NotificationListenerService 是系统绑定组件，即使 RingMap 界面不在前台也能收到
- * 高德/百度的导航通知。桥接不能只依赖有运行时长限制的 dataSync 前台服务，否则
- * 服务超时或被 OEM 回收后会丢失 WebSocket，迫使用户再次打开手机界面。
+ * 高德/百度的导航通知。桥接不能只依赖可能被 OEM 回收的前台服务，否则服务退出
+ * 后会同时丢失 WebSocket，迫使用户再次打开手机界面。
  */
 public final class NavBridgeRuntime implements NavDataBus.Listener {
 

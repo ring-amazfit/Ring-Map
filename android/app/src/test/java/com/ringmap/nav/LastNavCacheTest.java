@@ -20,4 +20,22 @@ public class LastNavCacheTest {
         assertFalse(LastNavCache.isFreshAt(1_000L, 45_000L, 46_001L));
         assertFalse(LastNavCache.isFreshAt(0L, 45_000L, 1_000L));
     }
+
+    @Test
+    public void oldListenerLifecycleCannotDisconnectANewerGeneration() {
+        ListenerConnectionState state = new ListenerConnectionState();
+        long first = state.connected();
+        long second = state.connected();
+
+        assertFalse(state.disconnected(first));
+        assertTrue(state.isConnected());
+        assertTrue(state.disconnected(second));
+        assertFalse(state.isConnected());
+    }
+
+    @Test
+    public void snapshotLeaseOutlivesMultipleHealthScans() {
+        assertTrue(NavSessionController.SNAPSHOT_TTL_MS
+                >= NavNotificationListener.ACTIVE_SCAN_INTERVAL_MS * 3L);
+    }
 }

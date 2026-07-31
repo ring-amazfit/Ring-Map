@@ -109,6 +109,56 @@ assert.equal(
   replayCount,
   'cache with less than five seconds remaining must not be replayed'
 )
+const orderingStart = messageCalls.length
+context.__handleProtocolPacket({
+  protocolVersion: 2,
+  type: 'nav_snapshot',
+  sessionId: 'ordering-session',
+  sessionStartedAt: now - 49_995,
+  seq: 2,
+  stateRevision: now + 1,
+  emittedAt: now + 1,
+  ttlMs: 45_000
+})
+context.__handleProtocolPacket({
+  protocolVersion: 2,
+  type: 'idle',
+  stateRevision: now,
+  emittedAt: now
+})
+const orderingDelivery = timers.findLast((timer) => !timer.cancelled && timer.delay === 80)
+assert.ok(orderingDelivery, 'the newer snapshot must remain queued after an older idle arrives')
+orderingDelivery.cancelled = true
+orderingDelivery.callback()
+const orderedSnapshot = messageCalls.slice(orderingStart)
+  .find((packet) => packet.type === 'nav_snapshot')
+assert.ok(orderedSnapshot, 'an older idle packet must not cancel a queued newer snapshot')
+assert.equal(orderedSnapshot.seq, 2)
+assert.equal(JSON.parse(storage.getItem('_rm_nav_packet')).seq, 2,
+  'an older terminal packet must not clear the newest App-Side cache')
+
+context.__handleProtocolPacket({
+  protocolVersion: 2,
+  type: 'nav_snapshot',
+  sessionId: 'ordering-session',
+  sessionStartedAt: now - 49_995,
+  seq: 1,
+  stateRevision: now - 1,
+  emittedAt: now - 1,
+  ttlMs: 45_000
+})
+assert.equal(JSON.parse(storage.getItem('_rm_nav_packet')).seq, 2,
+  'a lower sequence snapshot must not roll App-Side cache backward')
+context.__handleProtocolPacket({
+  protocolVersion: 2,
+  type: 'nav_end',
+  sessionId: 'ordering-session',
+  seq: 3,
+  stateRevision: now + 2,
+  emittedAt: now + 2
+})
+now += 100_000
+
 const liveStart = messageCalls.length
 context.__handleProtocolPacket({
   protocolVersion: 2,
@@ -131,9 +181,9 @@ const shortTtlStart = messageCalls.length
 context.__handleProtocolPacket({
   protocolVersion: 2,
   type: 'nav_snapshot',
-  sessionId: 'short-ttl-session',
-  sessionStartedAt: now,
-  seq: 1,
+  sessionId: 'live-session',
+  sessionStartedAt: now - 50_000,
+  seq: 2,
   emittedAt: now,
   ttlMs: 1000
 })
@@ -146,7 +196,7 @@ assert.equal(shortTtlSnapshot.ttlMs, 1000,
   'App-Side must not extend the protocol minimum TTL from one to five seconds')
 
 const burstStart = messageCalls.length
-for (let seq = 2; seq <= 12; seq++) {
+for (let seq = 3; seq <= 12; seq++) {
   context.__handleProtocolPacket({
     protocolVersion: 2,
     type: 'nav_snapshot',

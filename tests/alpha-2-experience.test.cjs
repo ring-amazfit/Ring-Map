@@ -12,8 +12,8 @@ const about = fs.readFileSync('page/about.js', 'utf8')
 const home = fs.readFileSync('page/home.js', 'utf8')
 const app = fs.readFileSync('app.js', 'utf8')
 
-assert.equal(androidBuild.includes('versionCode 13'), true, 'Android Alpha-2 must increment the installable version code')
-assert.equal(androidBuild.includes('versionName "Alpha-2"'), true, 'Android test build must expose Alpha-2')
+assert.equal(androidBuild.includes('versionCode 14'), true, 'Android Alpha-3 must increment the installable version code')
+assert.equal(androidBuild.includes('versionName "Alpha-3"'), true, 'Android test build must expose Alpha-3')
 assert.equal(watchConfig.app.version.code, 18, 'watch 1.1.1 must increment the installable version code')
 assert.equal(watchConfig.app.version.name, '1.1.1', 'watch test build must expose 1.1.1')
 
@@ -36,4 +36,4 @@ for (const target of Object.keys(watchConfig.targets)) {
   assert(fs.existsSync(`assets/${target}/download-qr.png`), `${target} must package the download QR`)
 }
 
-console.log('Alpha-2 connection and activation experience contracts passed')
+console.log('Alpha-3 connection and activation experience contracts passed')

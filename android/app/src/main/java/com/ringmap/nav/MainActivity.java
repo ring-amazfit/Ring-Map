@@ -1,6 +1,5 @@
 package com.ringmap.nav;
 
-import android.app.NotificationManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.ComponentName;
@@ -15,7 +14,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
-import android.service.notification.NotificationListenerService;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Toast;
@@ -44,8 +42,8 @@ import com.ringmap.nav.ui.StatusFragment;
 public class MainActivity extends AppCompatActivity {
 
     public static final String GITHUB_URL = "https://github.com/ring-amazfit/Ring-Map";
+    public static final String GITHUB_RELEASES_URL = GITHUB_URL + "/releases";
     public static final String ICONS8_URL = "https://icons8.com/";
-    private static final String NAV_LISTENER_PKG = "com.ringmap.nav";
     private static final String STATE_ROOT_INDEX = "root_destination_index";
     private static final String DETAIL_BACK_STACK = "detail";
     private static final long ROOT_MOTION_DURATION_MS = 180L;
@@ -287,7 +285,7 @@ public class MainActivity extends AppCompatActivity {
                 NavBridgeRuntime.ensureStarted(getApplicationContext());
                 startNavigationService();
                 requestListenerRebind();
-                showToast("正在恢复后台桥与系统通知监听");
+                showListenerRecoveryHelp();
                 break;
             case SERVICE_STOPPED:
             case SERVICE_ERROR:
@@ -304,14 +302,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public boolean isNotificationAccessGranted() {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
-            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-            if (manager != null && manager.isNotificationListenerAccessGranted(
-                    new ComponentName(this, NavNotificationListener.class))) return true;
-        }
-        String enabled = Settings.Secure.getString(getContentResolver(), "enabled_notification_listeners");
-        return NotificationAccess.isEnabled(enabled, NAV_LISTENER_PKG,
-                "com.ringmap.nav.NavNotificationListener");
+        return NotificationAccess.isGranted(this);
     }
 
     private void requestNotificationsPermissionIfNeeded() {
@@ -330,13 +321,8 @@ public class MainActivity extends AppCompatActivity {
         long now = System.currentTimeMillis();
         if (now - lastRebindAttemptMs < 3000L) return;
         lastRebindAttemptMs = now;
-        try {
-            repository.record("监听", "已请求系统重新绑定");
-            NotificationListenerService.requestRebind(
-                    new ComponentName(this, NavNotificationListener.class));
-        } catch (Exception error) {
-            repository.record("监听", "系统重绑请求失败");
-        }
+        repository.record("监听", "已请求系统恢复绑定");
+        NotificationListenerRecovery.request(this, true);
     }
 
     public void startNavigationService() {
@@ -379,6 +365,16 @@ public class MainActivity extends AppCompatActivity {
         return manager != null && manager.isIgnoringBatteryOptimizations(getPackageName());
     }
 
+    private void showListenerRecoveryHelp() {
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle("系统未启动通知监听")
+                .setMessage("RingMap 已请求系统重绑，但 HyperOS / ColorOS 仍可能在通知使用权保持开启时拦截监听服务。"
+                        + "请允许 RingMap 自启动、后台运行和电池不限制；完成后返回应用会再次自动连接。")
+                .setNegativeButton("稍后", null)
+                .setPositiveButton("打开自启动设置", (dialog, which) -> openAutostartSettings())
+                .show();
+    }
+
     public void showConnectionProtection() {
         String state = isIgnoringBatteryOptimizations() ? "已允许不受电池优化限制"
                 : "未设置电池不限制";
@@ -386,16 +382,37 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle("增强连接")
                 .setMessage("当前状态：" + state + "\n\n"
                         + "RingMap 会保持前台同步服务，并在监听断开时请求系统重绑。"
-                        + "为降低 HyperOS 清理后台后的中断，请允许电池不限制、在系统中开启自启动和后台运行，"
-                        + "且不要从最近任务中清理 RingMap。\n\n"
-                        + "系统强制停止（例如 HyperOS SwipeUpClean）会终止应用、前台服务和通知监听，"
-                        + "普通应用无法自行恢复，需重新打开 RingMap。")
-                .setNegativeButton("系统后台设置", (dialog, which) -> openBackgroundSettings())
+                        + "请同时允许自启动、后台运行和电池不限制，且不要强制停止 RingMap。\n\n"
+                        + "系统强制停止会明确禁止应用、前台服务和通知监听自行恢复；"
+                        + "这是 Android 安全边界，需要重新打开 RingMap。")
+                .setNegativeButton("自启动设置", (dialog, which) -> openAutostartSettings())
                 .setPositiveButton(isIgnoringBatteryOptimizations() ? "知道了" : "允许电池不限制",
                         (dialog, which) -> {
                             if (!isIgnoringBatteryOptimizations()) requestIgnoreBatteryOptimizations();
                         })
                 .show();
+    }
+
+    public void openAutostartSettings() {
+        String[][] candidates = {
+                {"com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity"},
+                {"com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity"},
+                {"com.oplus.safecenter", "com.oplus.safecenter.permission.startup.StartupAppListActivity"},
+                {"com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity"},
+                {"com.coloros.oppoguardelf", "com.coloros.powermanager.fuelgaue.PowerUsageModelActivity"}
+        };
+        for (String[] candidate : candidates) {
+            try {
+                Intent intent = new Intent();
+                intent.setComponent(new ComponentName(candidate[0], candidate[1]));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                startActivity(intent);
+                return;
+            } catch (Exception ignored) {
+                // 尝试下一个已知的 OEM 入口。
+            }
+        }
+        openBackgroundSettings();
     }
 
     public void openBackgroundSettings() {

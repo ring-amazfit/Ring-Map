@@ -31,4 +31,30 @@ public class NotificationAccessTest {
                 "com.ringmap.nav",
                 "com.ringmap.nav.NavNotificationListener"));
     }
+
+    @Test
+    public void officialApiResultOverridesAStaleSecureSetting() {
+        assertFalse(NotificationAccess.resolveGrantedState(
+                true,
+                false,
+                "com.ringmap.nav/.NavNotificationListener",
+                "com.ringmap.nav",
+                "com.ringmap.nav.NavNotificationListener"));
+        assertTrue(NotificationAccess.resolveGrantedState(
+                true,
+                true,
+                null,
+                "com.ringmap.nav",
+                "com.ringmap.nav.NavNotificationListener"));
+    }
+
+    @Test
+    public void legacyDevicesStillUseTheSecureSetting() {
+        assertTrue(NotificationAccess.resolveGrantedState(
+                false,
+                false,
+                "com.ringmap.nav/.NavNotificationListener",
+                "com.ringmap.nav",
+                "com.ringmap.nav.NavNotificationListener"));
+    }
 }

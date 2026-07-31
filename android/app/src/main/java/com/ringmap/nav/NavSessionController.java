@@ -9,9 +9,9 @@ import java.util.UUID;
 public final class NavSessionController {
 
     public static final long DUPLICATE_WINDOW_MS = 5000L;
-    public static final long COMPLETE_FRESHNESS_MS = 90_000L;
+    public static final long COMPLETE_FRESHNESS_MS = 45_000L;
     public static final long SOURCE_STALE_MS = 90_000L;
-    public static final long SNAPSHOT_TTL_MS = 45_000L;
+    public static final long SNAPSHOT_TTL_MS = 60_000L;
 
     public interface SessionIdFactory {
         String create();
