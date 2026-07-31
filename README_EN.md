@@ -106,8 +106,6 @@
 3. Open Background operation guide and enable auto-start/background operation in your OEM settings where available.
 4. Do not remove RingMap from Recents while navigation is active. Some systems treat that action as a force-stop and the app cannot recover by itself.
 
-<img src="./docs/images/android-zepp-background-permissions.jpg" alt="Android background operation permissions" width="320">
-
 > [!WARNING]
 > “Notification Access granted” is not the same as “Listener connected”. If the listener remains connecting, disable and re-enable RingMap Notification Access in Android Settings, then refresh RingMap.
 

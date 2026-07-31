@@ -99,14 +99,12 @@
 4. 在 Zepp 中安装手表端 RingMap，并保持手机 Zepp App 与手表连接。
 5. Android 导航桥连接到手表端后，手表会自动激活；可从手表首页进入导航或设置。
 
-### Android 后台保活
+### Android 后台运行
 
 1. 打开 Android RingMap 的“设置”。
 2. 点击“增强连接”，根据系统确认“允许电池不限制”。
 3. 点击“后台运行教程”，在系统应用详情中允许自启动和后台运行；不同品牌名称可能不同。
 4. 导航期间不要从最近任务中清理 RingMap。部分系统会将此操作视为强制停止，应用无法自行恢复。
-
-<img src="./docs/images/android-zepp-background-permissions.jpg" alt="Android 后台运行权限示例" width="320">
 
 > [!WARNING]
 > “通知使用权已授权”不等于“系统通知监听已连接”。如果状态页持续显示正在连接，请在 Android 系统设置中关闭再开启 RingMap 的通知使用权，然后回到 RingMap 刷新状态。

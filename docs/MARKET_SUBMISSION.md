@@ -120,8 +120,6 @@ Zepp's current circular-device submission guidance requires a `240 x 240` transp
 | `docs/market-assets/screen-settings-360.png` | Settings screenshot |
 | `docs/market-assets/screen-about-360.png` | About screenshot |
 
-The source phone screenshots below are documentation only. `android-zepp-background-permissions.jpg` is a system-setting example and is not a RingMap app screenshot; do not upload it to the ZeppOS application-screenshot field.
-
 ## Documentation Screenshots
 
 Use the following screenshots as the repository and market submission set. The Zepp developer console may impose a size, aspect ratio, or count limit; upload only images accepted by that console without altering what the screenshot represents.
@@ -132,7 +130,6 @@ Use the following screenshots as the repository and market submission set. The Z
 | `docs/images/watch-waiting.jpg` | Watch waiting state: text-only state when no valid maneuver exists. |
 | `docs/images/android-status.jpg` | Android companion: notification listener, service, bridge, and watch acknowledgement state. |
 | `docs/images/android-live-navigation.jpg` | Android companion: live navigation mirror and timing diagnostics. |
-| `docs/images/android-zepp-background-permissions.jpg` | Android/Zepp background-permission setting example, not a RingMap market screenshot. |
 
 ## Generated Release Artifacts (2026-07-30)
 
